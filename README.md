@@ -48,6 +48,8 @@ Most bugs in this project were timing and lifecycle problems between React and t
 ## Running it
 
 ```bash
+git clone https://github.com/ManasMahato-0/Blockpad.git
+cd Blockpad
 npm install
 npm run dev      # development server
 npm test         # unit tests
