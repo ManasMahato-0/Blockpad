@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #ffffff;
+  color: #37352f;
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+}
+
+[contenteditable]:focus {
+  outline: none;
+}
+
+/* Without this, runs of spaces collapse when text is re-rendered from the
+   model, so indentation typed by hand disappears on reload. */
+[contenteditable] {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Placeholder shows on an empty block while it has focus, and on the very
+   first block of an empty document so the page is never blank. */
+[contenteditable][data-empty="true"]:focus::before,
+[contenteditable][data-empty="true"][data-only="true"]::before,
+.title-field[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: #b8b6b2;
+  pointer-events: none;
+  position: absolute;
+  user-select: none;
+}
