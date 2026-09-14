@@ -6,9 +6,11 @@ import {
   getBlock,
   indentBlock,
   insertBlockAfter,
+  insertLines,
   moveBlock,
   outdentBlock,
   pressBackspaceAtStart,
+  pressDeleteAtEnd,
   pressEnter,
   setBlockContent,
   setBlockType,
@@ -19,8 +21,18 @@ import { VOID_BLOCKS } from "../model/types";
 import { concat, equals, slice, textLength } from "../model/richText";
 import { BlockView } from "./BlockView";
 import { SlashMenu, type CaretAnchor } from "./SlashMenu";
-import { domToRichText } from "./serialize";
-import { getCaretOffset, isAtEnd, isAtStart, setCaretOffset, textLengthOf } from "./caret";
+import { clipboardToLines, domToRichText } from "./serialize";
+import {
+  getCaretOffset,
+  getSelectionOffsets,
+  isAtEnd,
+  isAtStart,
+  isOnFirstLine,
+  isOnLastLine,
+  offsetForVerticalMove,
+  setCaretOffset,
+  textLengthOf,
+} from "./caret";
 import { filterCommands, matchMarkdownShortcut, type BlockCommand } from "./commands";
 import { useDocumentState } from "./useDocumentState";
 
@@ -295,6 +307,42 @@ export function Editor() {
 
   // --- keyboard -------------------------------------------------------------
 
+  /**
+   * Paste is always handled here. Left to the browser, it injects the source
+   * page's markup — colours, font sizes, headings — straight into the block,
+   * and multi-line text lands as one block with newlines inside it.
+   */
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>, blockId: string) => {
+    const el = elements.current.get(blockId);
+    if (!el) return;
+    event.preventDefault();
+
+    const html = event.clipboardData.getData("text/html");
+    const plain = event.clipboardData.getData("text/plain");
+    let lines = clipboardToLines(html, plain);
+    if (lines.length === 0 && plain) lines = clipboardToLines("", plain);
+    if (lines.length === 0) return;
+
+    if (typingCommit.current) window.clearTimeout(typingCommit.current);
+    closeSlash();
+
+    const { start, end } = getSelectionOffsets(el);
+    let next = commit(doc, blockId);
+    const block = getBlock(next, blockId);
+    if (!block) return;
+    if (end > start) {
+      next = setBlockContent(
+        next,
+        blockId,
+        concat(slice(block.content, 0, start), slice(block.content, end, textLength(block.content)))
+      );
+    }
+
+    const result = insertLines(next, blockId, start, lines);
+    pendingCaret.current = result.caret;
+    applyChange(result.doc);
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, blockId: string) => {
     const el = elements.current.get(blockId);
     if (!el) return;
@@ -395,8 +443,15 @@ export function Editor() {
       return;
     }
 
+    // Merges read the neighbouring block as well, and its latest typing may
+    // still be in the DOM waiting on the debounced commit. Committing only the
+    // current block let Delete merge in an empty line and then remove it —
+    // silently losing the text below. Commit both first.
     if (event.key === "Backspace" && isAtStart(el)) {
-      const result = pressBackspaceAtStart(commit(doc, blockId), blockId);
+      const previous = doc.blocks[findIndex(doc, blockId) - 1];
+      let committed = commit(doc, blockId);
+      if (previous) committed = commit(committed, previous.id);
+      const result = pressBackspaceAtStart(committed, blockId);
       if (result) {
         event.preventDefault();
         pendingCaret.current = result.caret;
@@ -405,24 +460,43 @@ export function Editor() {
       return;
     }
 
-    if (event.key === "ArrowUp" && isAtStart(el)) {
-      const index = findIndex(doc, blockId);
-      const previous = doc.blocks[index - 1];
-      if (previous && !VOID_BLOCKS.has(previous.type)) {
+    if (event.key === "Delete" && isAtEnd(el)) {
+      const below = doc.blocks[findIndex(doc, blockId) + 1];
+      let committed = commit(doc, blockId);
+      if (below) committed = commit(committed, below.id);
+      const result = pressDeleteAtEnd(committed, blockId);
+      if (result) {
         event.preventDefault();
-        applyChange(commit(doc, blockId));
-        focusBlock(previous.id, textLength(previous.content));
+        pendingCaret.current = result.caret;
+        applyChange(result.doc);
       }
       return;
     }
 
-    if (event.key === "ArrowDown" && isAtEnd(el)) {
+    // Leave from anywhere on the first/last visual line, landing at the same
+    // horizontal position. Shift+arrow is left alone so text selection works.
+    if (event.key === "ArrowUp" && !event.shiftKey && isOnFirstLine(el)) {
+      const index = findIndex(doc, blockId);
+      const previous = doc.blocks[index - 1];
+      const target = previous && elements.current.get(previous.id);
+      if (previous && target && !VOID_BLOCKS.has(previous.type)) {
+        event.preventDefault();
+        const offset = offsetForVerticalMove(el, target, "up");
+        applyChange(commit(doc, blockId));
+        focusBlock(previous.id, offset);
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown" && !event.shiftKey && isOnLastLine(el)) {
       const index = findIndex(doc, blockId);
       const next = doc.blocks[index + 1];
-      if (next && !VOID_BLOCKS.has(next.type)) {
+      const target = next && elements.current.get(next.id);
+      if (next && target && !VOID_BLOCKS.has(next.type)) {
         event.preventDefault();
+        const offset = offsetForVerticalMove(el, target, "down");
         applyChange(commit(doc, blockId));
-        focusBlock(next.id, 0);
+        focusBlock(next.id, offset);
       }
       return;
     }
@@ -478,6 +552,12 @@ export function Editor() {
             focusBlock(doc.blocks[0].id, 0);
           }
         }}
+        onPaste={(event) => {
+          // a title is one line of plain text, whatever was copied
+          event.preventDefault();
+          const firstLine = event.clipboardData.getData("text/plain").split(/\r?\n/)[0] ?? "";
+          if (firstLine) document.execCommand("insertText", false, firstLine);
+        }}
       />
 
       <div
@@ -516,6 +596,7 @@ export function Editor() {
                 registerWrapper={registerWrapper}
                 onKeyDown={handleKeyDown}
                 onInput={handleInput}
+                onPaste={handlePaste}
                 onToggleCheck={(id) => applyChange(toggleChecked(doc, id))}
                 onDragHandleDown={startDrag}
               />

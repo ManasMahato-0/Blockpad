@@ -158,3 +158,66 @@ export function pressBackspaceAtStart(doc: Doc, blockId: string): { doc: Doc; ca
     caret: { blockId: previous.id, offset: joinOffset },
   };
 }
+
+/**
+ * Delete at the end of a block — the mirror of Backspace at the start. Pulls
+ * the next block's text up onto this line; an image or divider below is
+ * removed instead of merged.
+ */
+export function pressDeleteAtEnd(doc: Doc, blockId: string): { doc: Doc; caret: Caret } | null {
+  const index = findIndex(doc, blockId);
+  const block = doc.blocks[index];
+  const below = doc.blocks[index + 1];
+  if (!block || !below) return null;
+
+  const joinOffset = textLength(block.content);
+  if (VOID_BLOCKS.has(below.type)) {
+    return { doc: deleteBlock(doc, below.id), caret: { blockId, offset: joinOffset } };
+  }
+
+  const merged = setBlockContent(doc, blockId, concat(block.content, below.content));
+  return { doc: deleteBlock(merged, below.id), caret: { blockId, offset: joinOffset } };
+}
+
+/**
+ * Pasting several lines. The first joins the text before the caret, the last
+ * takes the text that was after it, and each line in between becomes its own
+ * block. New blocks follow the Enter rule: pasting into a bullet gives
+ * bullets, pasting into a heading gives paragraphs after the first line.
+ */
+export function insertLines(
+  doc: Doc,
+  blockId: string,
+  offset: number,
+  lines: RichText[]
+): { doc: Doc; caret: Caret } {
+  const block = getBlock(doc, blockId);
+  if (!block || lines.length === 0) return { doc, caret: { blockId, offset } };
+
+  const before = slice(block.content, 0, offset);
+  const after = slice(block.content, offset, textLength(block.content));
+
+  if (lines.length === 1) {
+    return {
+      doc: setBlockContent(doc, blockId, concat(concat(before, lines[0]), after)),
+      caret: { blockId, offset: offset + textLength(lines[0]) },
+    };
+  }
+
+  const newType = CONTINUING_BLOCKS.has(block.type) ? block.type : "paragraph";
+  let next = setBlockContent(doc, blockId, concat(before, lines[0]));
+  let previousId = blockId;
+
+  for (let i = 1; i < lines.length; i++) {
+    const isLast = i === lines.length - 1;
+    const created = createBlock(newType, isLast ? concat(lines[i], after) : lines[i]);
+    created.indent = block.indent ?? 0;
+    next = insertBlockAfter(next, previousId, created);
+    previousId = created.id;
+  }
+
+  return {
+    doc: next,
+    caret: { blockId: previousId, offset: textLength(lines[lines.length - 1]) },
+  };
+}

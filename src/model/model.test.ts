@@ -3,8 +3,10 @@ import { concat, equals, normalize, slice, toPlain } from "./richText";
 import {
   createBlock,
   indentBlock,
+  insertLines,
   outdentBlock,
   pressBackspaceAtStart,
+  pressDeleteAtEnd,
   pressEnter,
   getBlock,
 } from "./document";
@@ -14,6 +16,58 @@ import type { Doc } from "./types";
 function docOf(...blocks: ReturnType<typeof createBlock>[]): Doc {
   return { title: "", blocks };
 }
+
+describe("insertLines", () => {
+  it("puts a single pasted line inline at the caret", () => {
+    const block = createBlock("paragraph", [{ text: "helloworld" }]);
+    const { doc, caret } = insertLines(docOf(block), block.id, 5, [[{ text: ", " }]]);
+
+    expect(doc.blocks).toHaveLength(1);
+    expect(toPlain(doc.blocks[0].content)).toBe("hello, world");
+    expect(caret).toEqual({ blockId: block.id, offset: 7 });
+  });
+
+  it("spreads several lines across blocks and keeps the tail on the last one", () => {
+    const block = createBlock("paragraph", [{ text: "startend" }]);
+    const lines = [[{ text: "-A" }], [{ text: "B" }], [{ text: "C-" }]];
+    const { doc, caret } = insertLines(docOf(block), block.id, 5, lines);
+
+    expect(doc.blocks.map((b) => toPlain(b.content))).toEqual(["start-A", "B", "C-end"]);
+    expect(caret).toEqual({ blockId: doc.blocks[2].id, offset: 2 });
+  });
+
+  it("makes every pasted line a bullet when pasting into a bullet", () => {
+    const block = createBlock("bulleted", []);
+    const { doc } = insertLines(docOf(block), block.id, 0, [[{ text: "milk" }], [{ text: "eggs" }]]);
+
+    expect(doc.blocks.map((b) => b.type)).toEqual(["bulleted", "bulleted"]);
+  });
+});
+
+describe("pressDeleteAtEnd", () => {
+  it("pulls the next block up with the caret at the join", () => {
+    const first = createBlock("paragraph", [{ text: "ab" }]);
+    const second = createBlock("paragraph", [{ text: "cd" }]);
+    const result = pressDeleteAtEnd(docOf(first, second), first.id)!;
+
+    expect(result.doc.blocks.map((b) => toPlain(b.content))).toEqual(["abcd"]);
+    expect(result.caret).toEqual({ blockId: first.id, offset: 2 });
+  });
+
+  it("does nothing on the last block", () => {
+    const only = createBlock("paragraph", [{ text: "end" }]);
+    expect(pressDeleteAtEnd(docOf(only), only.id)).toBeNull();
+  });
+
+  it("removes a divider below instead of merging into it", () => {
+    const text = createBlock("paragraph", [{ text: "above" }]);
+    const divider = createBlock("divider", []);
+    const result = pressDeleteAtEnd(docOf(text, divider), text.id)!;
+
+    expect(result.doc.blocks).toHaveLength(1);
+    expect(toPlain(result.doc.blocks[0].content)).toBe("above");
+  });
+});
 
 describe("richText", () => {
   it("keeps formatting attached to the right characters when slicing", () => {

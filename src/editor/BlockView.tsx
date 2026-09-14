@@ -39,6 +39,7 @@ interface Props {
   registerWrapper: (id: string, el: HTMLDivElement | null) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>, blockId: string) => void;
   onInput: (blockId: string, el: HTMLDivElement) => void;
+  onPaste: (event: React.ClipboardEvent<HTMLDivElement>, blockId: string) => void;
   onToggleCheck: (blockId: string) => void;
   onDragHandleDown: (event: React.PointerEvent, blockId: string) => void;
 }
@@ -52,6 +53,7 @@ export function BlockView({
   registerWrapper,
   onKeyDown,
   onInput,
+  onPaste,
   onToggleCheck,
   onDragHandleDown,
 }: Props) {
@@ -92,6 +94,7 @@ export function BlockView({
         el.dataset.empty = String((el.textContent?.length ?? 0) === 0);
         onInput(block.id, el);
       }}
+      onPaste={(event) => onPaste(event, block.id)}
       onKeyDown={(event) => onKeyDown(event, block.id)}
       className={`relative w-full ${TYPE_CLASSES[block.type] ?? TYPE_CLASSES.paragraph}`}
     />

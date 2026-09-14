@@ -80,3 +80,103 @@ export function isAtEnd(element: HTMLElement): boolean {
   if (!selection || !selection.isCollapsed) return false;
   return getCaretOffset(element) === textLengthOf(element);
 }
+
+function caretRect(element: HTMLElement): DOMRect | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!element.contains(range.startContainer)) return null;
+  const rects = range.getClientRects();
+  if (rects.length > 0) return rects[0];
+  // a collapsed caret in an empty block can report no rects at all
+  const box = range.getBoundingClientRect();
+  return box.height > 0 ? box : null;
+}
+
+function lineHeightOf(element: HTMLElement, fallback: number): number {
+  const value = parseFloat(getComputedStyle(element).lineHeight);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Whether the caret is on the block's first visual line. ArrowUp should leave
+ * for the block above from anywhere on that line: requiring offset 0 made it
+ * take two presses, and in a wrapped paragraph it is simply wrong.
+ */
+export function isOnFirstLine(element: HTMLElement): boolean {
+  const rect = caretRect(element);
+  if (!rect) return true;
+  const top = element.getBoundingClientRect().top;
+  return rect.top - top < lineHeightOf(element, rect.height) * 0.75;
+}
+
+export function isOnLastLine(element: HTMLElement): boolean {
+  const rect = caretRect(element);
+  if (!rect) return true;
+  const bottom = element.getBoundingClientRect().bottom;
+  return bottom - rect.bottom < lineHeightOf(element, rect.height) * 0.75;
+}
+
+function offsetWithin(element: HTMLElement, container: Node, offset: number): number {
+  const measure = document.createRange();
+  measure.selectNodeContents(element);
+  measure.setEnd(container, offset);
+  return measure.toString().length;
+}
+
+/**
+ * Where the caret should land when ArrowUp/ArrowDown crosses into another
+ * block: the same horizontal position, on the target's nearest line. Falls
+ * back to the end (moving up) or start (moving down) when the point misses —
+ * for instance when the target is scrolled out of view.
+ */
+export function offsetForVerticalMove(
+  from: HTMLElement,
+  to: HTMLElement,
+  direction: "up" | "down"
+): number {
+  const fallback = direction === "up" ? textLengthOf(to) : 0;
+  const x = caretRect(from)?.left;
+  if (x === undefined) return fallback;
+
+  const box = to.getBoundingClientRect();
+  const halfLine = lineHeightOf(to, 20) / 2;
+  const y = direction === "up" ? box.bottom - halfLine : box.top + halfLine;
+
+  // Browsers disagree on the name; both are called on document so `this` holds.
+  const doc = document as unknown as {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+
+  let node: Node | null = null;
+  let offset = 0;
+  const position = doc.caretPositionFromPoint?.(x, y);
+  if (position) {
+    node = position.offsetNode;
+    offset = position.offset;
+  } else {
+    const range = doc.caretRangeFromPoint?.(x, y);
+    if (range) {
+      node = range.startContainer;
+      offset = range.startOffset;
+    }
+  }
+
+  if (!node || !to.contains(node)) return fallback;
+  return offsetWithin(to, node, offset);
+}
+
+/** Start and end of the selection as character offsets within one block. */
+export function getSelectionOffsets(element: HTMLElement): { start: number; end: number } {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return { start: 0, end: 0 };
+  const range = selection.getRangeAt(0);
+  const start = element.contains(range.startContainer)
+    ? offsetWithin(element, range.startContainer, range.startOffset)
+    : 0;
+  const end = element.contains(range.endContainer)
+    ? offsetWithin(element, range.endContainer, range.endOffset)
+    : textLengthOf(element);
+  return { start, end: Math.max(start, end) };
+}
