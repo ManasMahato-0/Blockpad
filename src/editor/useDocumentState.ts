@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Doc } from "../model/types";
-import { emptyDoc } from "../model/document";
+import { loadPage, savePage } from "./storage";
 
-const STORAGE_KEY = "block-editor:doc";
 const SAVE_DEBOUNCE_MS = 400;
 /** Typing pauses longer than this start a new undo entry. */
 const TYPING_GROUP_MS = 500;
@@ -10,31 +9,12 @@ const HISTORY_LIMIT = 200;
 
 export type ChangeKind = "structural" | "typing";
 
-function loadSaved(): Doc | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Doc;
-    if (!parsed?.blocks?.length) return null;
-    return parsed;
-  } catch {
-    // corrupt or unavailable storage shouldn't stop the editor loading
-    return null;
-  }
-}
-
-function save(doc: Doc): boolean {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(doc));
-    return true;
-  } catch {
-    // quota or private mode — editing still works, it just isn't persisted
-    return false;
-  }
-}
-
-export function useDocumentState() {
-  const [doc, setDocState] = useState<Doc>(() => loadSaved() ?? emptyDoc());
+/**
+ * One page's document, its undo history and its saving. The editor is
+ * remounted for each page, so history never crosses between pages.
+ */
+export function useDocumentState(pageId: string) {
+  const [doc, setDocState] = useState<Doc>(() => loadPage(pageId));
   const [saved, setSaved] = useState(true);
 
   // History is held in refs and never touched inside a state updater:
@@ -86,14 +66,23 @@ export function useDocumentState() {
 
   useEffect(() => {
     setSaved(false);
-    const timer = setTimeout(() => setSaved(save(doc)), SAVE_DEBOUNCE_MS);
+    const timer = setTimeout(() => setSaved(savePage(pageId, doc)), SAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [doc]);
+  }, [doc, pageId]);
 
-  // Without this, closing the tab within a second of typing loses the text:
-  // it exists only in the DOM until the debounced save fires.
+  /** Synchronous save for when there is no later render to wait for, such as unmounting. */
+  const saveNow = useCallback(
+    (latest: Doc) => {
+      docRef.current = latest;
+      savePage(pageId, latest);
+    },
+    [pageId]
+  );
+
+  // Closing the tab, or switching to another page, would otherwise lose
+  // whatever the debounced save had not written yet.
   useEffect(() => {
-    const flush = () => save(docRef.current);
+    const flush = () => savePage(pageId, docRef.current);
     const onVisibility = () => {
       if (document.visibilityState === "hidden") flush();
     };
@@ -102,14 +91,9 @@ export function useDocumentState() {
     return () => {
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibility);
+      flush();
     };
-  }, []);
+  }, [pageId]);
 
-  const reset = useCallback(() => {
-    past.current = [];
-    future.current = [];
-    commitState(emptyDoc());
-  }, []);
-
-  return { doc, applyChange, undo, redo, reset, saved };
+  return { doc, applyChange, undo, redo, saved, saveNow };
 }

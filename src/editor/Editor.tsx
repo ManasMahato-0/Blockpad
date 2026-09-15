@@ -95,8 +95,13 @@ function activeMarksIn(content: RichText, start: number, end: number): ActiveMar
   };
 }
 
-export function Editor() {
-  const { doc, applyChange, undo, redo, saved } = useDocumentState();
+interface EditorProps {
+  pageId: string;
+  onTitleChange: (title: string) => void;
+}
+
+export function Editor({ pageId, onTitleChange }: EditorProps) {
+  const { doc, applyChange, undo, redo, saved, saveNow } = useDocumentState(pageId);
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -151,6 +156,10 @@ export function Editor() {
     if (el.textContent !== doc.title) el.textContent = doc.title;
   }, [doc.title]);
 
+  useEffect(() => {
+    onTitleChange(doc.title);
+  }, [doc.title, onTitleChange]);
+
   /**
    * Pull a block's live DOM text back into the model before operating on it.
    * Returns the document untouched when nothing actually changed, so a late
@@ -188,29 +197,54 @@ export function Editor() {
    * the same path splits and merges use.
    */
   const typingCommit = useRef<number | null>(null);
-  const scheduleTypingCommit = useCallback(
+  const typingBlockId = useRef<string | null>(null);
+
+  const commitTyping = useCallback(
     (blockId: string) => {
-      if (typingCommit.current) window.clearTimeout(typingCommit.current);
-      typingCommit.current = window.setTimeout(() => {
-        const el = elements.current.get(blockId);
-        if (!el) return;
-        const next = commit(docRef.current, blockId);
-        if (next === docRef.current) return;
-        // Only reposition the caret if the user is still in this block — the
-        // timer can land after they have pressed Enter and moved on, and
-        // would otherwise drag them back to where they were typing.
-        if (document.activeElement === el) {
-          pendingCaret.current = { blockId, offset: getCaretOffset(el) };
-        }
-        applyChange(next, "typing");
-      }, 600);
+      const el = elements.current.get(blockId);
+      if (!el) return;
+      const next = commit(docRef.current, blockId);
+      if (next === docRef.current) return;
+      // Only reposition the caret if the user is still in this block — the
+      // commit can land after they have moved on, and would otherwise drag
+      // them back to where they were typing.
+      if (document.activeElement === el) {
+        pendingCaret.current = { blockId, offset: getCaretOffset(el) };
+      }
+      applyChange(next, "typing");
     },
     [applyChange, commit]
   );
 
-  useEffect(() => () => {
-    if (typingCommit.current) window.clearTimeout(typingCommit.current);
-  }, []);
+  const scheduleTypingCommit = useCallback(
+    (blockId: string) => {
+      if (typingCommit.current) window.clearTimeout(typingCommit.current);
+      // Typing moved to another block before the previous one was committed.
+      // Cancelling its timer used to drop that text entirely; commit it now.
+      if (typingBlockId.current && typingBlockId.current !== blockId) {
+        commitTyping(typingBlockId.current);
+      }
+      typingBlockId.current = blockId;
+      typingCommit.current = window.setTimeout(() => {
+        typingBlockId.current = null;
+        commitTyping(blockId);
+      }, 600);
+    },
+    [commitTyping]
+  );
+
+  // Switching pages unmounts the editor, and typing still waiting on its
+  // debounce exists only in the DOM. A layout-effect cleanup runs while the
+  // blocks are still attached, so commit every block and save synchronously.
+  useLayoutEffect(
+    () => () => {
+      if (typingCommit.current) window.clearTimeout(typingCommit.current);
+      let latest = docRef.current;
+      for (const id of elements.current.keys()) latest = commit(latest, id);
+      saveNow(latest);
+    },
+    [commit, saveNow]
+  );
 
   /**
    * Undo/redo live on the document, not on the blocks: an undo can delete the
