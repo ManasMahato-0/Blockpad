@@ -19,6 +19,8 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 - **Drag to reorder** — grab the handle that appears on hover.
 - **Undo and redo** — continuous typing collapses into one step; structural edits are their own.
 - **Autosave** to the browser's local storage.
+- **Keyboard and screen-reader friendly** — Escape leaves the editor so Tab can move on, blocks move with Ctrl+Shift+Arrow, the slash menu announces the highlighted option, and text meets WCAG AA contrast.
+- **Works on phones** — the sidebar floats over the page, and controls that rely on hover stay visible on touch screens.
 
 <p>
   <img src="docs/slash-menu.png" alt="The slash menu listing the block types" width="49%">
@@ -35,6 +37,8 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 | `Delete` at line end | Pull the next line up |
 | `↑` / `↓` | Move between blocks, keeping the cursor's horizontal position |
 | `Tab` / `Shift+Tab` | Indent / outdent |
+| `Ctrl/Cmd + Shift + ↑` / `↓` | Move the current block up / down |
+| `Esc` | Leave the editor, so `Tab` moves on to the next control |
 | `Ctrl/Cmd + B`, `I`, `E` | Bold, italic, inline code |
 | `Ctrl/Cmd + K` | Link the selected text |
 | `Ctrl/Cmd + Z` | Undo |
