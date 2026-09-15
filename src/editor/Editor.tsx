@@ -48,6 +48,7 @@ import {
 } from "./caret";
 import { filterCommands, matchMarkdownShortcut, type BlockCommand } from "./commands";
 import { useDocumentState } from "./useDocumentState";
+import { FLUSH_EVENT } from "./storage";
 
 interface SlashState {
   blockId: string;
@@ -95,12 +96,21 @@ function activeMarksIn(content: RichText, start: number, end: number): ActiveMar
   };
 }
 
+/** Where to put the caret when the page is opened from a search result. */
+export interface RevealRequest {
+  /** null for the page title */
+  blockId: string | null;
+  offset: number;
+}
+
 interface EditorProps {
   pageId: string;
   onTitleChange: (title: string) => void;
+  reveal?: RevealRequest;
+  onRevealed?: () => void;
 }
 
-export function Editor({ pageId, onTitleChange }: EditorProps) {
+export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProps) {
   const { doc, applyChange, undo, redo, saved, saveNow } = useDocumentState(pageId);
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -254,9 +264,11 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
       if (document.visibilityState === "hidden") flushFromDom();
     };
     window.addEventListener("pagehide", flushFromDom);
+    window.addEventListener(FLUSH_EVENT, flushFromDom);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.removeEventListener("pagehide", flushFromDom);
+      window.removeEventListener(FLUSH_EVENT, flushFromDom);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [flushFromDom]);
@@ -272,6 +284,33 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
   );
 
   /**
+   * Opening a search result: the caret goes onto the match, the block scrolls
+   * to the middle of the screen and briefly flashes so the eye lands on it.
+   */
+  useEffect(() => {
+    if (!reveal) return;
+    onRevealed?.();
+    if (!reveal.blockId) {
+      const title = titleRef.current;
+      if (title) {
+        title.focus();
+        setCaretOffset(title, reveal.offset);
+      }
+      return;
+    }
+    const el = elements.current.get(reveal.blockId);
+    const wrapper = wrappers.current.get(reveal.blockId);
+    if (!el || !wrapper) return;
+    el.focus({ preventScroll: true });
+    setCaretOffset(el, reveal.offset);
+    wrapper.scrollIntoView({ block: "center" });
+    wrapper.animate(
+      [{ backgroundColor: "rgba(250, 204, 21, 0.35)" }, { backgroundColor: "rgba(250, 204, 21, 0)" }],
+      { duration: 1600, easing: "ease-out" }
+    );
+  }, [reveal, onRevealed]);
+
+  /**
    * Undo/redo live on the document, not on the blocks: an undo can delete the
    * very block that had focus, and once focus is gone a block-level handler
    * never sees the next keystroke. Also suppresses the browser's own
@@ -280,6 +319,8 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.metaKey && !event.ctrlKey) return;
+      // text boxes such as search and the link field keep their own undo
+      if (event.target instanceof HTMLInputElement) return;
       const key = event.key.toLowerCase();
       if (key !== "z" && key !== "y") return;
 

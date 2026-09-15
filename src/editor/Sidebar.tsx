@@ -9,6 +9,7 @@ interface Props {
   onCreate: () => void;
   onDelete: (id: string) => void;
   onCollapse: () => void;
+  onSearch: () => void;
   theme: Theme;
   onToggleTheme: () => void;
 }
@@ -20,9 +21,11 @@ export function Sidebar({
   onCreate,
   onDelete,
   onCollapse,
+  onSearch,
   theme,
   onToggleTheme,
 }: Props) {
+  const searchShortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘P" : "Ctrl+P";
   // Deleting takes two clicks: the first arms the button, the second confirms.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
@@ -64,6 +67,22 @@ export function Sidebar({
           </svg>
         </button>
       </div>
+
+      <button
+        type="button"
+        onClick={onSearch}
+        aria-keyshortcuts={searchShortcut === "⌘P" ? "Meta+P" : "Control+P"}
+        className="mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-600 hover:bg-neutral-200/60 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-100"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+        Search
+        <kbd className="ml-auto font-sans text-xs text-neutral-600 dark:text-neutral-400" aria-hidden="true">
+          {searchShortcut}
+        </kbd>
+      </button>
 
       <button
         type="button"

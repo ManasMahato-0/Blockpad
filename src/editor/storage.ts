@@ -35,6 +35,16 @@ function remove(key: string): void {
   }
 }
 
+/**
+ * Asks the open editor to save text it is still holding back for its typing
+ * debounce, so something that reads storage straight after sees it.
+ */
+export const FLUSH_EVENT = "blockpad:flush";
+
+export function requestFlush(): void {
+  window.dispatchEvent(new Event(FLUSH_EVENT));
+}
+
 export function loadPage(id: string): Doc {
   const doc = read<Doc>(PAGE_PREFIX + id);
   return doc?.blocks?.length ? doc : emptyDoc();

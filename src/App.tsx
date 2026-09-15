@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Editor } from "./editor/Editor";
+import { Editor, type RevealRequest } from "./editor/Editor";
+import { QuickSearch } from "./editor/QuickSearch";
 import { Sidebar } from "./editor/Sidebar";
 import { useTheme } from "./theme";
-import { deletePageData, loadWorkspace, saveWorkspace } from "./editor/storage";
+import { deletePageData, loadWorkspace, requestFlush, saveWorkspace } from "./editor/storage";
+import type { SearchResult } from "./model/search";
 import {
   addPage,
   newPageMeta,
@@ -19,6 +21,8 @@ export default function App() {
   // phones start collapsed so the sidebar doesn't cover the page on arrival
   const [sidebarOpen, setSidebarOpen] = useState(() => !window.matchMedia(NARROW_SCREEN).matches);
   const { theme, toggleTheme } = useTheme();
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [reveal, setReveal] = useState<(RevealRequest & { pageId: string }) | null>(null);
 
   // A removed page's stored content is erased only after its editor has
   // unmounted — that editor's unmount save would otherwise write it back.
@@ -39,6 +43,10 @@ export default function App() {
     []
   );
 
+  const closeSidebarOnPhones = () => {
+    if (window.matchMedia(NARROW_SCREEN).matches) setSidebarOpen(false);
+  };
+
   const createPage = () => {
     const page = newPageMeta();
     setWorkspace((current) => addPage(current, page));
@@ -46,7 +54,7 @@ export default function App() {
 
   const openPage = (id: string) => {
     setWorkspace((current) => selectPage(current, id));
-    if (window.matchMedia(NARROW_SCREEN).matches) setSidebarOpen(false);
+    closeSidebarOnPhones();
   };
 
   const deletePage = (id: string) => {
@@ -54,6 +62,37 @@ export default function App() {
     removedPageIds.current.push(id);
     setWorkspace((current) => removePage(current, id, replacement));
   };
+
+  // Search reads pages from storage, so the open page first saves anything
+  // still waiting on its typing debounce.
+  const openSearch = useCallback(() => {
+    requestFlush();
+    setSearchOpen(true);
+  }, []);
+
+  // Ctrl+P / Cmd+P, the shortcut Notion and code editors use for this, taken
+  // over from the browser's print dialog.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        openSearch();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [openSearch]);
+
+  const chooseResult = (result: SearchResult) => {
+    setSearchOpen(false);
+    setWorkspace((current) => selectPage(current, result.pageId));
+    setReveal({ pageId: result.pageId, blockId: result.blockId, offset: result.offset });
+    closeSidebarOnPhones();
+  };
+
+  // the editor reports back once it has shown the match, so coming back to
+  // the page later doesn't jump to it again
+  const clearReveal = useCallback(() => setReveal(null), []);
 
   return (
     <div className="flex min-h-full">
@@ -74,6 +113,7 @@ export default function App() {
               onCreate={createPage}
               onDelete={deletePage}
               onCollapse={() => setSidebarOpen(false)}
+              onSearch={openSearch}
               theme={theme}
               onToggleTheme={toggleTheme}
             />
@@ -98,8 +138,14 @@ export default function App() {
           key={workspace.activePageId}
           pageId={workspace.activePageId}
           onTitleChange={handleTitleChange}
+          reveal={reveal?.pageId === workspace.activePageId ? reveal : undefined}
+          onRevealed={clearReveal}
         />
       </main>
+
+      {searchOpen && (
+        <QuickSearch pages={workspace.pages} onChoose={chooseResult} onClose={() => setSearchOpen(false)} />
+      )}
     </div>
   );
 }
