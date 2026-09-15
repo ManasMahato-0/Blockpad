@@ -1,19 +1,29 @@
 # Blockpad
 
-A block-based document editor in the browser, in the style of Notion. Every paragraph, heading and list item is an independent block you can type in, convert, indent and drag around.
+A block-based document editor in the browser, in the style of Notion. Pages of notes where every paragraph, heading and list item is a block you can type in, format, convert, indent and drag around.
+
+Built from scratch with React and TypeScript — no editor framework. Cursor tracking, splitting and merging blocks, paste handling, formatting and undo are all hand-written on top of `contenteditable`.
 
 **[Try it live →](https://blockpad-five.vercel.app)**
 
-Built from scratch with React and TypeScript — no editor framework. Everything below `contenteditable` is hand-written: cursor tracking, splitting and merging blocks, the slash menu, undo history.
+![A Blockpad page with the page sidebar, headings, a nested list and a to-do list](docs/editor.png)
 
 ## What it does
 
-- **Slash menu** — type `/` to insert or convert a block: text, three heading levels, bulleted, numbered and to-do lists, quote, divider. Filters as you type; arrow keys and Enter to choose.
-- **Markdown shortcuts** — `# ` becomes a heading, `- ` a bullet, `1. ` a numbered item, `> ` a quote, `[] ` a to-do.
-- **Nested lists** — Tab and Shift+Tab indent and outdent. Numbering restarts per level and resumes when you come back out.
+- **Pages** — a sidebar of documents. Create, switch and delete them; each page keeps its own undo history.
+- **Slash menu** — type `/` to insert or convert a block: text, three heading levels, bulleted, numbered and to-do lists, quote, divider.
+- **Formatting toolbar** — select text for bold, italic, inline code and links. Unsafe addresses such as `javascript:` links are refused.
+- **Markdown shortcuts** — `# ` becomes a heading, `- ` a bullet, `1. ` a numbered item, `> ` a quote, `[] ` a to-do. Leading spaces become indentation.
+- **Nested lists** — Tab and Shift+Tab. Numbering restarts at each level and resumes when you come back out.
+- **Clean paste** — text copied from a web page or Google Docs keeps its bold, italic, code and links, and drops colours, fonts and sizes. Several lines become several blocks.
 - **Drag to reorder** — grab the handle that appears on hover.
 - **Undo and redo** — continuous typing collapses into one step; structural edits are their own.
-- **Autosave** — saved to local storage as you type, and flushed when the tab closes.
+- **Autosave** to the browser's local storage.
+
+<p>
+  <img src="docs/slash-menu.png" alt="The slash menu listing the block types" width="49%">
+  <img src="docs/toolbar.png" alt="The formatting toolbar above selected text" width="49%">
+</p>
 
 ### Keyboard
 
@@ -22,20 +32,25 @@ Built from scratch with React and TypeScript — no editor framework. Everything
 | `/` | Open the block menu |
 | `Enter` | Split the block at the cursor; on an empty list item, leave the list |
 | `Backspace` at line start | Turn a styled block back into text, or merge into the line above |
+| `Delete` at line end | Pull the next line up |
+| `↑` / `↓` | Move between blocks, keeping the cursor's horizontal position |
 | `Tab` / `Shift+Tab` | Indent / outdent |
-| `Ctrl/Cmd + B`, `Ctrl/Cmd + I` | Bold, italic |
+| `Ctrl/Cmd + B`, `I`, `E` | Bold, italic, inline code |
+| `Ctrl/Cmd + K` | Link the selected text |
 | `Ctrl/Cmd + Z` | Undo |
 | `Ctrl/Cmd + Shift + Z`, `Ctrl + Y` | Redo |
 
 ## How it works
 
-**One `contenteditable` per block, not one for the whole document.** A single editable region means fighting the browser over DOM structure on every keystroke. Per-block keeps native cursor behaviour inside a line, and makes cross-block operations explicit.
+**One `contenteditable` per block, not one for the whole document.** A single editable region means fighting the browser over DOM structure on every keystroke. Per-block keeps native cursor behaviour inside a line, and makes every cross-block operation explicit.
 
-**A pure document model.** The document is plain data — blocks holding runs of formatted text. Every operation (split, merge, move, indent, change type) is a pure function that returns a new document. That makes the core directly unit-testable, and makes undo history a list of previous versions.
+**A pure document model.** A page is plain data — blocks holding runs of formatted text. Every operation (split, merge, move, indent, change type, apply a format) is a pure function that returns a new document. That makes the core directly unit-testable, and makes undo history a list of previous versions.
 
-**The DOM is the source of truth while you type.** If React re-rendered a block's content on every keystroke, the cursor would jump to the start. So typing never touches the model; the block's text is committed back at structural moments — Enter, Backspace at a line start, switching blocks — and on a short debounce for autosave.
+**The DOM is the source of truth while you type.** If React re-rendered a block's content on every keystroke, the cursor would jump to the start. So typing never touches the model; a block's text is committed back at structural moments — Enter, Backspace at a line start, switching pages — and on a short debounce for autosave.
 
 **Cursor translation.** Browsers report the cursor as a DOM node plus an offset inside it. The model wants a single character offset within a block. `src/editor/caret.ts` converts between the two in both directions, which is what lets a merge land the cursor exactly at the seam.
+
+**Storage.** Each page is saved under its own key alongside a small index of page titles, so typing in one page never rewrites the others. Notes written before pages existed are migrated into the first page on load.
 
 ### Problems worth knowing about
 
@@ -43,7 +58,10 @@ Most bugs in this project were timing and lifecycle problems between React and t
 
 - **State updaters must be pure.** React's StrictMode calls `setState` updater functions twice. Generating block IDs inside one minted two different IDs and left the cursor pointing at a block that didn't exist; mutating undo history inside one pushed and popped every entry twice.
 - **React only cleans up what React created.** Converting a paragraph into a list reused the same `<div>` as a new layout container, and text written into it with `innerHTML` survived inside it. Keying each block's markup by its type forces a clean remount.
-- **Debounced work outlives the moment it was scheduled for.** An autosave commit could fire after you had pressed Enter and moved on, dragging the cursor back to the old line. It now no-ops when nothing changed, and never moves a cursor that has left the block.
+- **Debounced work outlives the moment it was scheduled for.** A delayed autosave commit could fire after you had moved to another line and drag the cursor back. And starting to type in a second line cancelled the first line's pending commit, so its text was never saved.
+- **Closing a tab never unmounts React.** The close-tab save wrote the document model, but text typed in the last half second still existed only in the page — so a quick close or reload lost it. Leaving now commits every block straight from the DOM before saving.
+- **A merge reads its neighbour too.** Delete at the end of a line committed the current line but read the next one from a model that hadn't seen its latest typing — so it merged in an empty line and then removed it, silently deleting text.
+- **Pasted HTML lies.** Google Docs wraps everything you copy in `<b style="font-weight:normal">`. A parser that trusts tags turns every paste bold.
 
 ## Running it
 
@@ -56,12 +74,16 @@ npm test         # unit tests
 npm run build    # production build
 ```
 
-Unit tests cover the document model: text slicing, the Enter and Backspace rules, indentation limits and the markdown shortcut matcher.
+Unit tests cover the document model: text slicing and formatting marks, the Enter, Backspace and Delete rules, pasting several lines, indentation limits, the markdown shortcut matcher and the page list.
 
 ## Stack
 
-React 19, TypeScript, Vite, Tailwind CSS v4, Vitest.
+React 19, TypeScript, Vite, Tailwind CSS v4 and Vitest, deployed on Vercel.
 
 ## Scope
 
-Deliberately left out: multi-block selection, image upload, real-time collaboration, and multiple documents. Everything is stored in the browser's local storage.
+Deliberately left out: selecting across several blocks, image upload, real-time collaboration and syncing between devices. Pages live in the browser's local storage, on the device they were written on.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
