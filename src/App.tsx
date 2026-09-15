@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Editor } from "./editor/Editor";
 import { Sidebar } from "./editor/Sidebar";
+import { useTheme } from "./theme";
 import { deletePageData, loadWorkspace, saveWorkspace } from "./editor/storage";
 import {
   addPage,
@@ -17,6 +18,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace());
   // phones start collapsed so the sidebar doesn't cover the page on arrival
   const [sidebarOpen, setSidebarOpen] = useState(() => !window.matchMedia(NARROW_SCREEN).matches);
+  const { theme, toggleTheme } = useTheme();
 
   // A removed page's stored content is erased only after its editor has
   // unmounted — that editor's unmount save would otherwise write it back.
@@ -72,6 +74,8 @@ export default function App() {
               onCreate={createPage}
               onDelete={deletePage}
               onCollapse={() => setSidebarOpen(false)}
+              theme={theme}
+              onToggleTheme={toggleTheme}
             />
           </div>
         </>
@@ -81,7 +85,7 @@ export default function App() {
           onClick={() => setSidebarOpen(true)}
           aria-label="Open sidebar"
           title="Open sidebar"
-          className="fixed left-3 top-3 z-40 flex h-11 w-11 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800"
+          className="fixed left-3 top-3 z-40 flex h-11 w-11 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M4 6h16M4 12h16M4 18h16" />

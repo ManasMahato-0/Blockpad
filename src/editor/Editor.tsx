@@ -788,7 +788,7 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
   return (
     <div className="mx-auto min-h-full w-full max-w-[720px] px-5 pb-16 pt-14 md:px-14 md:py-16">
       <div
-        className="pointer-events-none fixed right-5 top-4 text-xs text-neutral-500"
+        className="pointer-events-none fixed right-5 top-4 text-xs text-neutral-500 dark:text-neutral-400"
         aria-live="polite"
       >
         {saved ? "Saved" : "Saving…"}
@@ -800,7 +800,7 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
       {/* A real heading, so the page has an h1 that screen readers announce as
           one. The editable field sits inside it: role="textbox" on the h1
           itself would replace its heading role. */}
-      <h1 className="mb-6 text-[30px] font-bold leading-tight tracking-tight text-neutral-900 md:text-[40px]">
+      <h1 className="mb-6 text-[30px] font-bold leading-tight tracking-tight text-neutral-900 md:text-[40px] dark:text-neutral-100">
         <div
           ref={titleRef}
           contentEditable

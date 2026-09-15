@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* dark: keys off a class on <html> instead of the media query, so the
+   toggle can override the system setting */
+@custom-variant dark (&:where(.dark, .dark *));
+
 html,
 body,
 #root {
@@ -11,6 +15,20 @@ body {
   background: #ffffff;
   color: #37352f;
   font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+/* also turns native controls such as checkboxes and scrollbars dark */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background: #191919;
+  color: #e3e3e1; /* 13:1 on the dark page */
 }
 
 [contenteditable]:focus {
@@ -36,6 +54,11 @@ body {
   user-select: none;
 }
 
+.dark [contenteditable][data-empty="true"]::before,
+.dark .title-field[data-empty="true"]::before {
+  color: #8a8a8a; /* 5.1:1 on the dark page */
+}
+
 /* Inline marks inside blocks */
 [contenteditable] code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -46,9 +69,18 @@ body {
   padding: 0.15em 0.35em;
 }
 
+.dark [contenteditable] code {
+  color: #ff7b72; /* 5.6:1 on the dark code background */
+  background: rgba(255, 255, 255, 0.08);
+}
+
 [contenteditable] a {
   color: inherit;
   text-decoration: underline;
   text-decoration-color: rgba(55, 53, 47, 0.4);
   text-underline-offset: 2px;
+}
+
+.dark [contenteditable] a {
+  text-decoration-color: rgba(227, 227, 225, 0.4);
 }

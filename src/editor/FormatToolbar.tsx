@@ -36,7 +36,9 @@ const MARK_BUTTONS: { mark: MarkName; label: string; shortcut: string; glyph: Re
 
 const buttonClass = (pressed: boolean) =>
   `flex h-8 min-w-8 items-center justify-center rounded px-2 text-[15px] transition-colors ${
-    pressed ? "bg-neutral-900 text-white" : "text-neutral-700 hover:bg-neutral-100"
+    pressed
+      ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+      : "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
   }`;
 
 export function FormatToolbar({
@@ -79,7 +81,7 @@ export function FormatToolbar({
       role="toolbar"
       aria-label="Text formatting"
       data-format-toolbar=""
-      className="fixed z-50 rounded-lg border border-neutral-200 bg-white shadow-xl"
+      className="fixed z-50 rounded-lg border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-800"
       style={{ top: placement.top, left: placement.left }}
     >
       {editingLink ? (
@@ -105,11 +107,11 @@ export function FormatToolbar({
             }}
             placeholder="Paste a link…"
             aria-label="Link address"
-            className="w-60 rounded border border-neutral-200 px-2 py-1 text-sm outline-none focus:border-neutral-400"
+            className="w-60 rounded border border-neutral-200 bg-white px-2 py-1 text-sm text-neutral-900 outline-none placeholder:text-neutral-500 focus:border-neutral-400 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-400"
           />
           <button
             type="submit"
-            className="rounded px-2 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+            className="rounded px-2 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
           >
             Apply
           </button>
@@ -131,7 +133,7 @@ export function FormatToolbar({
             </button>
           ))}
 
-          <span className="mx-1 h-5 w-px bg-neutral-200" aria-hidden="true" />
+          <span className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-600" aria-hidden="true" />
 
           <button
             type="button"

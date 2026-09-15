@@ -11,7 +11,7 @@ const TYPE_CLASSES: Record<string, string> = {
   bulleted: "text-[16px] leading-7",
   numbered: "text-[16px] leading-7",
   todo: "text-[16px] leading-7",
-  quote: "text-[16px] leading-7 italic text-neutral-600",
+  quote: "text-[16px] leading-7 italic text-neutral-600 dark:text-neutral-300",
 };
 
 const WRAPPER_SPACING: Record<string, string> = {
@@ -117,7 +117,7 @@ export function BlockView({
   if (block.type === "divider") {
     inner = (
       <div key="divider" className="w-full py-2" data-block-id={block.id}>
-        <hr className="border-neutral-200" />
+        <hr className="border-neutral-200 dark:border-neutral-700" />
       </div>
     );
   } else if (block.type === "image") {
@@ -126,14 +126,14 @@ export function BlockView({
         <img
           src={block.src}
           alt={block.alt ?? ""}
-          className="max-w-full rounded-md border border-neutral-200"
+          className="max-w-full rounded-md border border-neutral-200 dark:border-neutral-700"
         />
       </div>
     );
   } else if (block.type === "bulleted" || block.type === "numbered") {
     inner = (
       <div key="list" className="flex w-full gap-2">
-        <span className="min-w-[1.2rem] select-none pt-[3px] text-right text-neutral-500">
+        <span className="min-w-[1.2rem] select-none pt-[3px] text-right text-neutral-500 dark:text-neutral-400">
           {listMarker}
         </span>
         {editable}
@@ -146,17 +146,17 @@ export function BlockView({
           type="checkbox"
           checked={!!block.checked}
           onChange={() => onToggleCheck(block.id)}
-          className="mt-[7px] h-4 w-4 accent-neutral-800"
+          className="mt-[7px] h-4 w-4 accent-neutral-800 dark:accent-neutral-200"
           aria-label="Toggle task"
         />
-        <div className={block.checked ? "flex-1 text-neutral-500 line-through" : "flex-1"}>
+        <div className={block.checked ? "flex-1 text-neutral-500 line-through dark:text-neutral-400" : "flex-1"}>
           {editable}
         </div>
       </div>
     );
   } else if (block.type === "quote") {
     inner = (
-      <div key="quote" className="w-full border-l-[3px] border-neutral-300 pl-3">{editable}</div>
+      <div key="quote" className="w-full border-l-[3px] border-neutral-300 pl-3 dark:border-neutral-600">{editable}</div>
     );
   } else {
     inner = <div key="plain" className="w-full">{editable}</div>;
@@ -179,7 +179,7 @@ export function BlockView({
         aria-label="Drag to reorder"
         tabIndex={-1}
         onPointerDown={(event) => onDragHandleDown(event, block.id)}
-        className="absolute -left-7 top-1 cursor-grab touch-none select-none rounded p-1 text-neutral-300 opacity-0 transition-opacity hover:bg-neutral-100 hover:text-neutral-500 group-hover:opacity-100 active:cursor-grabbing max-md:hidden [@media(hover:none)]:opacity-100"
+        className="absolute -left-7 top-1 cursor-grab touch-none select-none rounded p-1 text-neutral-300 opacity-0 transition-opacity hover:bg-neutral-100 hover:text-neutral-500 group-hover:opacity-100 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-400 active:cursor-grabbing max-md:hidden [@media(hover:none)]:opacity-100"
       >
         <svg width="12" height="16" viewBox="0 0 12 16" aria-hidden="true" fill="currentColor">
           <circle cx="4" cy="4" r="1.4" />
