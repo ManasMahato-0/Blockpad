@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { PageMeta } from "../model/workspace";
 import type { Theme } from "../theme";
 
@@ -10,6 +10,7 @@ interface Props {
   onDelete: (id: string) => void;
   onCollapse: () => void;
   onSearch: () => void;
+  onImport: (files: File[]) => void;
   theme: Theme;
   onToggleTheme: () => void;
 }
@@ -22,10 +23,12 @@ export function Sidebar({
   onDelete,
   onCollapse,
   onSearch,
+  onImport,
   theme,
   onToggleTheme,
 }: Props) {
   const searchShortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘P" : "Ctrl+P";
+  const fileInput = useRef<HTMLInputElement>(null);
   // Deleting takes two clicks: the first arms the button, the second confirms.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
@@ -87,13 +90,38 @@ export function Sidebar({
       <button
         type="button"
         onClick={onCreate}
-        className="mx-2 mb-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-600 hover:bg-neutral-200/60 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-100"
+        className="mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-600 hover:bg-neutral-200/60 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-100"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>
         New page
       </button>
+
+      <button
+        type="button"
+        onClick={() => fileInput.current?.click()}
+        className="mx-2 mb-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-600 hover:bg-neutral-200/60 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-100"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 15V3m0 0-4 4m4-4 4 4" />
+          <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+        </svg>
+        Import Markdown
+      </button>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".md,.markdown,.txt,text/markdown,text/plain"
+        multiple
+        hidden
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          // cleared so choosing the same file again still fires a change
+          event.target.value = "";
+          if (files.length > 0) onImport(files);
+        }}
+      />
 
       <ul className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-4">
         {pages.map((page) => {

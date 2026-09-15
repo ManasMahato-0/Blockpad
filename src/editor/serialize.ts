@@ -26,6 +26,11 @@ export function safeHref(href: string | null | undefined): string | undefined {
 export function richTextToHtml(rich: RichText): string {
   return rich
     .map((span) => {
+      // A link to another page is one unit: not editable inside, removed
+      // whole by Backspace. Its text is the page title.
+      if (span.pageLink) {
+        return `<a class="page-link" role="link" contenteditable="false" data-page-link="${escapeHtml(span.pageLink)}">${escapeHtml(span.text)}</a>`;
+      }
       let html = escapeHtml(span.text);
       if (span.code) html = `<code>${html}</code>`;
       if (span.bold) html = `<strong>${html}</strong>`;
@@ -55,8 +60,12 @@ function marksFor(el: Element, inherited: Marks): Marks {
   if (tag === "em" || tag === "i" || /font-style:\s*italic/i.test(style)) next.italic = true;
   if (tag === "code") next.code = true;
   if (tag === "a") {
+    // a page id is only ever looked up among the workspace's pages, never
+    // followed as a URL, so one pasted from elsewhere can do no harm
+    const pageId = el.getAttribute("data-page-link");
     const href = safeHref(el.getAttribute("href"));
-    if (href) next.link = href;
+    if (pageId) next.pageLink = pageId;
+    else if (href) next.link = href;
   }
   return next;
 }

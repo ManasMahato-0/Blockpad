@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { syncLinkTitles } from "../model/links";
 import type { Doc } from "../model/types";
+import type { PageMeta } from "../model/workspace";
 import { loadPage, savePage } from "./storage";
 
 const SAVE_DEBOUNCE_MS = 400;
@@ -13,8 +15,10 @@ export type ChangeKind = "structural" | "typing";
  * One page's document, its undo history and its saving. The editor is
  * remounted for each page, so history never crosses between pages.
  */
-export function useDocumentState(pageId: string) {
-  const [doc, setDocState] = useState<Doc>(() => loadPage(pageId));
+export function useDocumentState(pageId: string, pages: PageMeta[]) {
+  // Links pick up renamed and deleted pages as the page opens. Not an undo
+  // step: nobody typed anything.
+  const [doc, setDocState] = useState<Doc>(() => syncLinkTitles(loadPage(pageId), pages));
   const [saved, setSaved] = useState(true);
 
   // History is held in refs and never touched inside a state updater:

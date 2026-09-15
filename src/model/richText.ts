@@ -23,17 +23,21 @@ function sameMarks(a: InlineSpan, b: InlineSpan): boolean {
     !!a.bold === !!b.bold &&
     !!a.italic === !!b.italic &&
     !!a.code === !!b.code &&
-    a.link === b.link
+    a.link === b.link &&
+    a.pageLink === b.pageLink
   );
 }
 
-/** Drops empty spans and merges neighbours with identical formatting. */
+/**
+ * Drops empty spans and merges neighbours with identical formatting. Page
+ * links never merge: two links to the same page side by side are two links.
+ */
 export function normalize(rich: RichText): RichText {
   const out: RichText = [];
   for (const span of rich) {
     if (!span.text) continue;
     const last = out[out.length - 1];
-    if (last && sameMarks(last, span)) last.text += span.text;
+    if (last && !span.pageLink && sameMarks(last, span)) last.text += span.text;
     else out.push({ ...span });
   }
   return out;

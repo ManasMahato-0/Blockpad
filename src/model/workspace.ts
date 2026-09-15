@@ -13,8 +13,9 @@ export function newPageMeta(): PageMeta {
   return { id: crypto.randomUUID(), title: "" };
 }
 
-export function addPage(workspace: Workspace, page: PageMeta): Workspace {
-  return { pages: [...workspace.pages, page], activePageId: page.id };
+/** Appends a page and opens it, unless `open` is false (a page created from a link). */
+export function addPage(workspace: Workspace, page: PageMeta, open = true): Workspace {
+  return { pages: [...workspace.pages, page], activePageId: open ? page.id : workspace.activePageId };
 }
 
 export function selectPage(workspace: Workspace, id: string): Workspace {

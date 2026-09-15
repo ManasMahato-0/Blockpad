@@ -26,6 +26,8 @@ export interface InlineSpan {
   italic?: boolean;
   code?: boolean;
   link?: string;
+  /** Id of another page. The text is that page's title, kept in step when the page opens. */
+  pageLink?: string;
 }
 
 export type RichText = InlineSpan[];

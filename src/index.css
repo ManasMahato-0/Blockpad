@@ -84,3 +84,28 @@ body {
 .dark [contenteditable] a {
   text-decoration-color: rgba(227, 227, 225, 0.4);
 }
+
+/* A link to another page: its title with a small page icon. The icon is
+   drawn by CSS, so it adds no characters to the caret arithmetic. */
+[contenteditable] a.page-link {
+  cursor: pointer;
+  font-weight: 500;
+  border-radius: 3px;
+}
+
+[contenteditable] a.page-link:hover {
+  background: rgba(135, 131, 120, 0.15);
+}
+
+[contenteditable] a.page-link::before {
+  content: "";
+  display: inline-block;
+  width: 0.95em;
+  height: 0.95em;
+  margin-right: 0.2em;
+  vertical-align: -0.12em;
+  background-color: currentColor;
+  opacity: 0.55;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 3v5h5'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}

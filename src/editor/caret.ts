@@ -15,20 +15,27 @@ function textNodesOf(root: HTMLElement): Text[] {
   return nodes;
 }
 
+/**
+ * Page links are non-editable islands, and a caret inside one can't type.
+ * A position inside a link moves to just before it (at its start) or just
+ * after it (anywhere else).
+ */
+function outsideLinks(root: HTMLElement, node: Node, offset: number): [Node, number] {
+  const island = node.parentElement?.closest('[contenteditable="false"]');
+  if (!island || !root.contains(island) || !island.parentNode) return [node, offset];
+  const index = Array.prototype.indexOf.call(island.parentNode.childNodes, island);
+  return [island.parentNode, offset === 0 ? index : index + 1];
+}
+
 export function getCaretOffset(element: HTMLElement): number {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return 0;
 
   const range = selection.getRangeAt(0);
   if (!element.contains(range.startContainer)) return 0;
-
-  let offset = 0;
-  for (const node of textNodesOf(element)) {
-    if (node === range.startContainer) return offset + range.startOffset;
-    offset += node.length;
-  }
-  // caret sat on the element itself (e.g. an empty block) rather than in a text node
-  return range.startContainer === element ? offset : 0;
+  // measured as text rather than by walking text nodes: next to a page link
+  // the caret sits between elements, not inside a text node
+  return offsetWithin(element, range.startContainer, range.startOffset);
 }
 
 export function setCaretOffset(element: HTMLElement, offset: number): void {
@@ -49,7 +56,7 @@ export function setCaretOffset(element: HTMLElement, offset: number): void {
 
   for (const node of nodes) {
     if (remaining <= node.length) {
-      range.setStart(node, remaining);
+      range.setStart(...outsideLinks(element, node, remaining));
       range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
@@ -59,7 +66,7 @@ export function setCaretOffset(element: HTMLElement, offset: number): void {
   }
 
   const last = nodes[nodes.length - 1];
-  range.setStart(last, last.length);
+  range.setStart(...outsideLinks(element, last, last.length));
   range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);
@@ -211,11 +218,11 @@ export function setSelectionOffsets(element: HTMLElement, start: number, end: nu
   const locate = (target: number): [Node, number] => {
     let remaining = target;
     for (const node of nodes) {
-      if (remaining <= node.length) return [node, remaining];
+      if (remaining <= node.length) return outsideLinks(element, node, remaining);
       remaining -= node.length;
     }
     const last = nodes[nodes.length - 1];
-    return last ? [last, last.length] : [element, 0];
+    return last ? outsideLinks(element, last, last.length) : [element, 0];
   };
 
   const range = document.createRange();

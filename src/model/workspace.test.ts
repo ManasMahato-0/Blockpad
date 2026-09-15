@@ -11,6 +11,12 @@ describe("addPage", () => {
     expect(next.pages.map((p) => p.id)).toEqual(["a", "b"]);
     expect(next.activePageId).toBe("b");
   });
+
+  it("can append without opening, for a page created from a link", () => {
+    const next = addPage(workspaceOf(["a"], "a"), { id: "b", title: "" }, false);
+    expect(next.pages.map((p) => p.id)).toEqual(["a", "b"]);
+    expect(next.activePageId).toBe("a");
+  });
 });
 
 describe("selectPage", () => {

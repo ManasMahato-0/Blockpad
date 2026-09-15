@@ -29,8 +29,11 @@ import {
   toggleMark,
   type MarkName,
 } from "../model/richText";
+import { insertPageLink, linkLabel, pageLinkAt } from "../model/links";
+import type { PageMeta } from "../model/workspace";
+import { Backlinks } from "./Backlinks";
 import { BlockView, KEYBOARD_HINT_ID } from "./BlockView";
-import { SLASH_MENU_ID, SlashMenu, slashOptionId, type CaretAnchor } from "./SlashMenu";
+import { SLASH_MENU_ID, SlashMenu, slashOptionId, type CaretAnchor, type MenuItem } from "./SlashMenu";
 import { FormatToolbar, type ActiveMarks, type SelectionAnchor } from "./FormatToolbar";
 import { clipboardToLines, domToRichText, safeHref } from "./serialize";
 import {
@@ -49,13 +52,51 @@ import {
 import { filterCommands, matchMarkdownShortcut, type BlockCommand } from "./commands";
 import { useDocumentState } from "./useDocumentState";
 import { FLUSH_EVENT } from "./storage";
+import { downloadText, markdownFileName } from "./files";
+import { docToMarkdown } from "../model/markdown";
 
 interface SlashState {
+  /** "/" inserts a block type, "[[" links a page. */
+  trigger: "/" | "[[";
   blockId: string;
-  /** Index of the "/" character within the block. */
+  /** Index of the trigger's first character within the block. */
   startOffset: number;
   query: string;
   anchor: CaretAnchor;
+}
+
+type MenuChoice = MenuItem &
+  (
+    | { kind: "command"; command: BlockCommand }
+    | { kind: "page"; page: PageMeta }
+    | { kind: "create"; title: string }
+  );
+
+const PAGE_MENU_LIMIT = 8;
+
+/** Pages matching what was typed after "[[", plus a way to create one. */
+function pageChoices(pages: PageMeta[], currentPageId: string, query: string): MenuChoice[] {
+  const q = query.trim().toLowerCase();
+  const choices: MenuChoice[] = pages
+    .filter((page) => page.id !== currentPageId && linkLabel(page.title).toLowerCase().includes(q))
+    .slice(0, PAGE_MENU_LIMIT)
+    .map((page) => ({
+      id: `page-${page.id}`,
+      label: linkLabel(page.title),
+      description: "Link to page",
+      kind: "page",
+      page,
+    }));
+  if (q && !pages.some((page) => page.title.trim().toLowerCase() === q)) {
+    choices.push({
+      id: "create-page",
+      label: `Create “${query.trim()}”`,
+      description: "New page, linked here",
+      kind: "create",
+      title: query.trim(),
+    });
+  }
+  return choices;
 }
 
 interface DragState {
@@ -108,10 +149,22 @@ interface EditorProps {
   onTitleChange: (title: string) => void;
   reveal?: RevealRequest;
   onRevealed?: () => void;
+  pages: PageMeta[];
+  onOpenPage: (pageId: string, reveal?: RevealRequest) => void;
+  /** Adds a page without opening it, and returns it. */
+  onCreatePage: (title: string) => PageMeta;
 }
 
-export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProps) {
-  const { doc, applyChange, undo, redo, saved, saveNow } = useDocumentState(pageId);
+export function Editor({
+  pageId,
+  onTitleChange,
+  reveal,
+  onRevealed,
+  pages,
+  onOpenPage,
+  onCreatePage,
+}: EditorProps) {
+  const { doc, applyChange, undo, redo, saved, saveNow } = useDocumentState(pageId, pages);
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -127,7 +180,17 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
   const docRef = useRef(doc);
   docRef.current = doc;
 
-  const matches = slash ? filterCommands(slash.query) : [];
+  const matches: MenuChoice[] = !slash
+    ? []
+    : slash.trigger === "/"
+      ? filterCommands(slash.query).map((command) => ({
+          id: command.id,
+          label: command.label,
+          description: command.description,
+          kind: "command",
+          command,
+        }))
+      : pageChoices(pages, pageId, slash.query);
 
   const registerRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) elements.current.set(id, el);
@@ -254,7 +317,14 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
     let latest = docRef.current;
     for (const id of elements.current.keys()) latest = commit(latest, id);
     saveNow(latest);
+    return latest;
   }, [commit, saveNow]);
+
+  /** Downloads the page as Markdown, typing not yet committed included. */
+  const exportMarkdown = () => {
+    const latest = flushFromDom();
+    downloadText(markdownFileName(latest.title), docToMarkdown(latest, pages), "text/markdown");
+  };
 
   // Unloading the page never unmounts React, so closing the tab needs its own
   // flush. Hidden counts too: mobile browsers often discard a background tab
@@ -420,19 +490,31 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
     applyChange(setBlockContent(committed, blockId, setLink(block.content, start, end, target)));
   };
 
-  /** Removes the "/query" text, then converts the block to the chosen type. */
-  const applyCommand = (command: BlockCommand) => {
+  /**
+   * "/query" is removed and the block converts to the chosen type; "[[query"
+   * is replaced by a link to the chosen page, created first if it's new.
+   */
+  const chooseMenuItem = (item: MenuChoice) => {
     if (!slash) return;
-    const { blockId, startOffset, query } = slash;
+    const { trigger, blockId, startOffset, query } = slash;
     closeSlash();
 
     const committed = commit(doc, blockId);
     const block = getBlock(committed, blockId);
     if (!block) return;
 
+    if (item.kind !== "command") {
+      const page = item.kind === "page" ? item.page : onCreatePage(item.title);
+      const { content, caret } = insertPageLink(block.content, startOffset, trigger.length + query.length, page);
+      pendingCaret.current = { blockId, offset: caret };
+      applyChange(setBlockContent(committed, blockId, content));
+      return;
+    }
+    const { command } = item;
+
     const stripped = concat(
       slice(block.content, 0, startOffset),
-      slice(block.content, startOffset + 1 + query.length, textLength(block.content))
+      slice(block.content, startOffset + trigger.length + query.length, textLength(block.content))
     );
 
     let next = setBlockContent(committed, blockId, stripped);
@@ -470,11 +552,14 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
       if (!el.contains(selection.anchorNode)) return closeSlash();
 
       const text = el.textContent ?? "";
-      if (text[slash.startOffset] !== "/") return closeSlash();
+      if (!text.startsWith(slash.trigger, slash.startOffset)) return closeSlash();
 
       const caret = getCaretOffset(el);
-      if (caret <= slash.startOffset) return closeSlash();
-      if (/\s/.test(text.slice(slash.startOffset + 1, caret))) return closeSlash();
+      const queryStart = slash.startOffset + slash.trigger.length;
+      if (caret < queryStart) return closeSlash();
+      // a command name is one word; a page title can have spaces but no "]"
+      const stop = slash.trigger === "/" ? /\s/ : /[\]\n]/;
+      if (stop.test(text.slice(queryStart, caret))) return closeSlash();
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -608,10 +693,10 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
         return;
       }
       if (event.key === "Enter" || event.key === "Tab") {
-        const command = matches[activeIndex];
-        if (command) {
+        const item = matches[activeIndex];
+        if (item) {
           event.preventDefault();
-          applyCommand(command);
+          chooseMenuItem(item);
           return;
         }
       }
@@ -652,10 +737,32 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
       const offset = getCaretOffset(el);
       const charBefore = (el.textContent ?? "")[offset - 1];
       if (offset === 0 || charBefore === undefined || /\s/.test(charBefore)) {
-        setSlash({ blockId, startOffset: offset, query: "", anchor: caretAnchor(el) });
+        setSlash({ trigger: "/", blockId, startOffset: offset, query: "", anchor: caretAnchor(el) });
         setActiveIndex(0);
       }
       return;
+    }
+
+    // "[[" opens the page picker. Keydown arrives before the second "[" is
+    // typed, so only the first one is in the text yet.
+    if (event.key === "[") {
+      const offset = getCaretOffset(el);
+      if ((el.textContent ?? "")[offset - 1] === "[") {
+        setSlash({ trigger: "[[", blockId, startOffset: offset - 1, query: "", anchor: caretAnchor(el) });
+        setActiveIndex(0);
+      }
+      return;
+    }
+
+    // Links aren't focusable inside editable text, so Ctrl+Enter follows the
+    // one beside the caret.
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      const target = pageLinkAt(domToRichText(el), getCaretOffset(el));
+      if (target) {
+        event.preventDefault();
+        onOpenPage(target);
+        return;
+      }
     }
 
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey) {
@@ -803,16 +910,13 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
     scheduleTypingCommit(blockId);
     if (!slash || slash.blockId !== blockId) return;
     const text = el.textContent ?? "";
-    if (text[slash.startOffset] !== "/") {
-      closeSlash();
-      return;
-    }
     const caret = getCaretOffset(el);
-    if (caret <= slash.startOffset) {
+    const queryStart = slash.startOffset + slash.trigger.length;
+    if (!text.startsWith(slash.trigger, slash.startOffset) || caret < queryStart) {
       closeSlash();
       return;
     }
-    setSlash({ ...slash, query: text.slice(slash.startOffset + 1, caret) });
+    setSlash({ ...slash, query: text.slice(queryStart, caret) });
     setActiveIndex(0);
   };
 
@@ -828,15 +932,31 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
 
   return (
     <div className="mx-auto min-h-full w-full max-w-[720px] px-5 pb-16 pt-14 md:px-14 md:py-16">
-      <div
-        className="pointer-events-none fixed right-5 top-4 text-xs text-neutral-500 dark:text-neutral-400"
-        aria-live="polite"
-      >
-        {saved ? "Saved" : "Saving…"}
+      <div className="fixed right-3 top-2.5 z-20 flex items-center gap-1">
+        <span
+          className="pointer-events-none px-2 text-xs text-neutral-500 dark:text-neutral-400"
+          aria-live="polite"
+        >
+          {saved ? "Saved" : "Saving…"}
+        </span>
+        <button
+          type="button"
+          onClick={exportMarkdown}
+          aria-label="Export page as Markdown"
+          title="Export as Markdown"
+          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3v12m0 0-4-4m4 4 4-4" />
+            <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+          </svg>
+          <span className="max-md:hidden">Export</span>
+        </button>
       </div>
       <p id={KEYBOARD_HINT_ID} className="sr-only">
         Tab indents a line. Press Escape to leave the editor, then Tab to move on.
-        Control Shift Arrow Up or Down moves a line.
+        Control Shift Arrow Up or Down moves a line. Type two opening square
+        brackets to link another page, and Control Enter beside a link opens it.
       </p>
       {/* A real heading, so the page has an h1 that screen readers announce as
           one. The editable field sits inside it: role="textbox" on the h1
@@ -873,6 +993,12 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
 
       <div
         onClick={(event) => {
+          const link = event.target instanceof Element ? event.target.closest("[data-page-link]") : null;
+          if (link) {
+            event.preventDefault();
+            onOpenPage(link.getAttribute("data-page-link") ?? "");
+            return;
+          }
           if (event.target === event.currentTarget) {
             const last = doc.blocks[doc.blocks.length - 1];
             const el = elements.current.get(last.id);
@@ -886,7 +1012,9 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
             counters[depth] = (counters[depth] ?? 0) + 1;
             counters.length = depth + 1;
           } else {
-            counters.length = 0;
+            // a bullet or to-do nested under a numbered item leaves the
+            // parent's count alone, so the next number carries on
+            counters.length = block.type === "bulleted" || block.type === "todo" ? depth : 0;
           }
 
           return (
@@ -919,12 +1047,19 @@ export function Editor({ pageId, onTitleChange, reveal, onRevealed }: EditorProp
         {drag && dropIndex === doc.blocks.length && dropLine}
       </div>
 
+      <Backlinks
+        pageId={pageId}
+        pages={pages}
+        onOpen={(link) => onOpenPage(link.pageId, { blockId: link.blockId, offset: link.offset })}
+      />
+
       {slash && matches.length > 0 && (
         <SlashMenu
-          commands={matches}
+          items={matches}
           activeIndex={activeIndex}
           anchor={slash.anchor}
-          onChoose={applyCommand}
+          label={slash.trigger === "/" ? "Insert block" : "Link to page"}
+          onChoose={chooseMenuItem}
         />
       )}
 
