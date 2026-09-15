@@ -233,17 +233,41 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
     [commitTyping]
   );
 
-  // Switching pages unmounts the editor, and typing still waiting on its
-  // debounce exists only in the DOM. A layout-effect cleanup runs while the
-  // blocks are still attached, so commit every block and save synchronously.
+  /**
+   * Typing still waiting on its debounce exists only in the DOM, and both
+   * switching pages and closing the tab happen before that commit runs.
+   * Commits every block and saves synchronously, without a re-render, which
+   * would move the cursor when the user comes back to the tab.
+   */
+  const flushFromDom = useCallback(() => {
+    let latest = docRef.current;
+    for (const id of elements.current.keys()) latest = commit(latest, id);
+    saveNow(latest);
+  }, [commit, saveNow]);
+
+  // Unloading the page never unmounts React, so closing the tab needs its own
+  // flush. Hidden counts too: mobile browsers often discard a background tab
+  // without ever firing pagehide.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushFromDom();
+    };
+    window.addEventListener("pagehide", flushFromDom);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flushFromDom);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [flushFromDom]);
+
+  // Switching pages unmounts the editor. A layout-effect cleanup runs while
+  // the blocks are still attached, so their text can still be read.
   useLayoutEffect(
     () => () => {
       if (typingCommit.current) window.clearTimeout(typingCommit.current);
-      let latest = docRef.current;
-      for (const id of elements.current.keys()) latest = commit(latest, id);
-      saveNow(latest);
+      flushFromDom();
     },
-    [commit, saveNow]
+    [flushFromDom]
   );
 
   /**
