@@ -21,11 +21,14 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 - **Autosave** to the browser's local storage.
 - **Keyboard and screen-reader friendly** — Escape leaves the editor so Tab can move on, blocks move with Ctrl+Shift+Arrow, the slash menu announces the highlighted option, and text meets WCAG AA contrast.
 - **Works on phones** — the sidebar floats over the page, and controls that rely on hover stay visible on touch screens.
+- **Dark mode** — follows the system setting until you flip the switch in the sidebar, then remembers your choice. The theme is set before the first paint, so there is no white flash, and both themes meet WCAG AA contrast.
 
 <p>
   <img src="docs/slash-menu.png" alt="The slash menu listing the block types" width="49%">
   <img src="docs/toolbar.png" alt="The formatting toolbar above selected text" width="49%">
 </p>
+
+![The same page in dark mode](docs/editor-dark.png)
 
 ### Keyboard
 
