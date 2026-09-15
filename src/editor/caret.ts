@@ -180,3 +180,49 @@ export function getSelectionOffsets(element: HTMLElement): { start: number; end:
     : textLengthOf(element);
   return { start, end: Math.max(start, end) };
 }
+
+/**
+ * The selection inside one block: character offsets, plus the rectangle a
+ * toolbar can anchor to. Null when the selection is collapsed or spills
+ * outside this block.
+ */
+export function selectionInBlock(
+  element: HTMLElement
+): { start: number; end: number; rect: DOMRect } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+  const { start, end } = getSelectionOffsets(element);
+  if (end <= start) return null;
+  return { start, end, rect: range.getBoundingClientRect() };
+}
+
+/**
+ * Selects characters [start, end) within one block. Applying a format
+ * re-renders the block and destroys the selection; this puts it back, which
+ * is what lets marks be stacked one after another.
+ */
+export function setSelectionOffsets(element: HTMLElement, start: number, end: number): void {
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const nodes = textNodesOf(element);
+  const locate = (target: number): [Node, number] => {
+    let remaining = target;
+    for (const node of nodes) {
+      if (remaining <= node.length) return [node, remaining];
+      remaining -= node.length;
+    }
+    const last = nodes[nodes.length - 1];
+    return last ? [last, last.length] : [element, 0];
+  };
+
+  const range = document.createRange();
+  const [startNode, startOffset] = locate(start);
+  const [endNode, endOffset] = locate(end);
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}

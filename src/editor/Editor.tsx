@@ -16,12 +16,23 @@ import {
   setBlockType,
   toggleChecked,
 } from "../model/document";
-import type { Doc } from "../model/types";
+import type { Doc, RichText } from "../model/types";
 import { VOID_BLOCKS } from "../model/types";
-import { concat, equals, slice, textLength } from "../model/richText";
+import {
+  concat,
+  equals,
+  linkInRange,
+  rangeHasMark,
+  setLink,
+  slice,
+  textLength,
+  toggleMark,
+  type MarkName,
+} from "../model/richText";
 import { BlockView } from "./BlockView";
 import { SlashMenu, type CaretAnchor } from "./SlashMenu";
-import { clipboardToLines, domToRichText } from "./serialize";
+import { FormatToolbar, type ActiveMarks, type SelectionAnchor } from "./FormatToolbar";
+import { clipboardToLines, domToRichText, safeHref } from "./serialize";
 import {
   getCaretOffset,
   getSelectionOffsets,
@@ -30,7 +41,9 @@ import {
   isOnFirstLine,
   isOnLastLine,
   offsetForVerticalMove,
+  selectionInBlock,
   setCaretOffset,
+  setSelectionOffsets,
   textLengthOf,
 } from "./caret";
 import { filterCommands, matchMarkdownShortcut, type BlockCommand } from "./commands";
@@ -49,6 +62,15 @@ interface DragState {
   fromIndex: number;
 }
 
+interface ToolbarState {
+  blockId: string;
+  start: number;
+  end: number;
+  anchor: SelectionAnchor;
+  active: ActiveMarks;
+  linkMode: boolean;
+}
+
 /** Bullet shape changes with depth, the way nested lists conventionally do. */
 const BULLET_GLYPHS = ["•", "◦", "▪"];
 
@@ -64,16 +86,27 @@ function caretAnchor(el: HTMLElement): CaretAnchor {
   return { top: fallback.top, bottom: fallback.bottom, left: fallback.left };
 }
 
+function activeMarksIn(content: RichText, start: number, end: number): ActiveMarks {
+  return {
+    bold: rangeHasMark(content, start, end, "bold"),
+    italic: rangeHasMark(content, start, end, "italic"),
+    code: rangeHasMark(content, start, end, "code"),
+    link: linkInRange(content, start, end),
+  };
+}
+
 export function Editor() {
   const { doc, applyChange, undo, redo, saved } = useDocumentState();
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
 
   const elements = useRef(new Map<string, HTMLDivElement>());
   const wrappers = useRef(new Map<string, HTMLDivElement>());
   const pendingCaret = useRef<Caret | null>(null);
+  const pendingSelection = useRef<{ blockId: string; start: number; end: number } | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -91,7 +124,18 @@ export function Editor() {
   }, []);
 
   // Structural edits say where the cursor belongs; place it once the DOM exists.
+  // A pending selection wins: formatting has to leave the same text selected.
   useLayoutEffect(() => {
+    const range = pendingSelection.current;
+    if (range) {
+      pendingSelection.current = null;
+      const target = elements.current.get(range.blockId);
+      if (target) {
+        target.focus();
+        setSelectionOffsets(target, range.start, range.end);
+      }
+      return;
+    }
     const caret = pendingCaret.current;
     if (!caret) return;
     pendingCaret.current = null;
@@ -190,6 +234,92 @@ export function Editor() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [undo, redo]);
 
+  /** Reads the live selection into toolbar state, or hides the toolbar. */
+  const readSelection = useCallback(() => {
+    const focused = document.activeElement;
+    // typing a link address moves focus into the toolbar itself; keep it open
+    if (focused instanceof HTMLElement && focused.closest("[data-format-toolbar]")) return;
+
+    const blockId = focused instanceof HTMLElement ? focused.getAttribute("data-block-id") : null;
+    const el = blockId ? elements.current.get(blockId) : undefined;
+    const selected = el ? selectionInBlock(el) : null;
+    if (!blockId || !el || !selected) {
+      setToolbar(null);
+      return;
+    }
+
+    const { start, end, rect } = selected;
+    const active = activeMarksIn(domToRichText(el), start, end);
+    const anchor = { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+    setToolbar((current) => ({
+      blockId,
+      start,
+      end,
+      anchor,
+      active,
+      linkMode:
+        current !== null && current.blockId === blockId && current.start === start && current.end === end
+          ? current.linkMode
+          : false,
+    }));
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener("selectionchange", readSelection);
+    window.addEventListener("scroll", readSelection, true);
+    window.addEventListener("resize", readSelection);
+    return () => {
+      document.removeEventListener("selectionchange", readSelection);
+      window.removeEventListener("scroll", readSelection, true);
+      window.removeEventListener("resize", readSelection);
+    };
+  }, [readSelection]);
+
+  const restoreSelection = (blockId: string, start: number, end: number) => {
+    const el = elements.current.get(blockId);
+    if (!el) return;
+    el.focus();
+    setSelectionOffsets(el, start, end);
+  };
+
+  /**
+   * Formatting goes through the model rather than execCommand, which writes
+   * <b> where the renderer writes <strong>. The selection is restored after
+   * the re-render so marks can be stacked one after another.
+   */
+  const applyMark = (blockId: string, start: number, end: number, mark: MarkName) => {
+    if (end <= start) return;
+    const committed = commit(doc, blockId);
+    const block = getBlock(committed, blockId);
+    if (!block) return;
+    if (typingCommit.current) window.clearTimeout(typingCommit.current);
+    pendingSelection.current = { blockId, start, end };
+    applyChange(setBlockContent(committed, blockId, toggleMark(block.content, start, end, mark)));
+  };
+
+  /** Bare domains get https://; anything that still isn't a safe URL is refused. */
+  const normaliseHref = (input: string): string | undefined => {
+    const trimmed = input.trim();
+    if (!trimmed) return undefined;
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed);
+    return safeHref(hasScheme ? trimmed : "https://" + trimmed);
+  };
+
+  const applyLink = (href: string | undefined) => {
+    if (!toolbar) return;
+    const { blockId, start, end } = toolbar;
+    let target: string | undefined;
+    if (href !== undefined) {
+      target = normaliseHref(href);
+      if (!target) return;
+    }
+    const committed = commit(doc, blockId);
+    const block = getBlock(committed, blockId);
+    if (!block || end <= start) return;
+    pendingSelection.current = { blockId, start, end };
+    applyChange(setBlockContent(committed, blockId, setLink(block.content, start, end, target)));
+  };
+
   /** Removes the "/query" text, then converts the block to the chosen type. */
   const applyCommand = (command: BlockCommand) => {
     if (!slash) return;
@@ -267,6 +397,7 @@ export function Editor() {
     event.preventDefault();
     const fromIndex = findIndex(doc, blockId);
     if (fromIndex === -1) return;
+    setToolbar(null);
     setDrag({ blockId, fromIndex });
     setDropIndex(fromIndex);
   };
@@ -389,10 +520,35 @@ export function Editor() {
 
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey) {
       const key = event.key.toLowerCase();
-      if (key === "b" || key === "i") {
+      const shortcutMarks: Record<string, MarkName> = { b: "bold", i: "italic", e: "code" };
+      if (Object.hasOwn(shortcutMarks, key)) {
         event.preventDefault();
-        document.execCommand(key === "b" ? "bold" : "italic");
-        applyChange(commit(doc, blockId));
+        const { start, end } = getSelectionOffsets(el);
+        if (end > start) {
+          applyMark(blockId, start, end, shortcutMarks[key]);
+        } else if (key !== "e") {
+          // With nothing selected, Ctrl+B means "type the next characters in
+          // bold" — a typing state rather than a range, which the browser
+          // already tracks. The <b> it produces is read back as bold on the
+          // next commit. Inline code has no browser equivalent, so Ctrl+E
+          // needs a selection.
+          document.execCommand(key === "b" ? "bold" : "italic");
+        }
+        return;
+      }
+      if (key === "k") {
+        event.preventDefault();
+        const selected = selectionInBlock(el);
+        if (!selected) return;
+        const { start, end, rect } = selected;
+        setToolbar({
+          blockId,
+          start,
+          end,
+          anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+          active: activeMarksIn(domToRichText(el), start, end),
+          linkMode: true,
+        });
         return;
       }
     }
@@ -612,6 +768,21 @@ export function Editor() {
           activeIndex={activeIndex}
           anchor={slash.anchor}
           onChoose={applyCommand}
+        />
+      )}
+
+      {toolbar && !slash && !drag && (
+        <FormatToolbar
+          key={toolbar.linkMode ? "link" : "marks"}
+          anchor={toolbar.anchor}
+          active={toolbar.active}
+          initialLinkMode={toolbar.linkMode}
+          onToggle={(mark) => applyMark(toolbar.blockId, toolbar.start, toolbar.end, mark)}
+          onSetLink={applyLink}
+          onCloseLinkMode={() => {
+            setToolbar({ ...toolbar, linkMode: false });
+            restoreSelection(toolbar.blockId, toolbar.start, toolbar.end);
+          }}
         />
       )}
     </div>

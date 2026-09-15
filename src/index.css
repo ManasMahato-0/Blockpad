@@ -35,3 +35,20 @@ body {
   position: absolute;
   user-select: none;
 }
+
+/* Inline marks inside blocks */
+[contenteditable] code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  color: #eb5757;
+  background: rgba(135, 131, 120, 0.15);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+}
+
+[contenteditable] a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(55, 53, 47, 0.4);
+  text-underline-offset: 2px;
+}
