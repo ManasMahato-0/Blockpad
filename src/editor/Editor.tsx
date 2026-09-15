@@ -29,8 +29,8 @@ import {
   toggleMark,
   type MarkName,
 } from "../model/richText";
-import { BlockView } from "./BlockView";
-import { SlashMenu, type CaretAnchor } from "./SlashMenu";
+import { BlockView, KEYBOARD_HINT_ID } from "./BlockView";
+import { SLASH_MENU_ID, SlashMenu, slashOptionId, type CaretAnchor } from "./SlashMenu";
 import { FormatToolbar, type ActiveMarks, type SelectionAnchor } from "./FormatToolbar";
 import { clipboardToLines, domToRichText, safeHref } from "./serialize";
 import {
@@ -107,12 +107,13 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
+  const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
 
   const elements = useRef(new Map<string, HTMLDivElement>());
   const wrappers = useRef(new Map<string, HTMLDivElement>());
   const pendingCaret = useRef<Caret | null>(null);
   const pendingSelection = useRef<{ blockId: string; start: number; end: number } | null>(null);
-  const titleRef = useRef<HTMLHeadingElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
 
@@ -449,6 +450,22 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
     };
   }, [slash]);
 
+  // Combobox wiring: the text line keeps focus while the menu is open, so it
+  // points assistive technology at the highlighted option.
+  useEffect(() => {
+    if (!slash) return;
+    const el = elements.current.get(slash.blockId);
+    if (!el) return;
+    const highlighted = matches[activeIndex];
+    el.setAttribute("aria-controls", SLASH_MENU_ID);
+    if (highlighted) el.setAttribute("aria-activedescendant", slashOptionId(highlighted.id));
+    else el.removeAttribute("aria-activedescendant");
+    return () => {
+      el.removeAttribute("aria-controls");
+      el.removeAttribute("aria-activedescendant");
+    };
+  }, [slash, activeIndex, matches]);
+
   // --- dragging blocks ------------------------------------------------------
 
   const startDrag = (event: React.PointerEvent, blockId: string) => {
@@ -562,6 +579,30 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
         closeSlash();
         return;
       }
+    }
+
+    // Tab indents a line, so without a way out a keyboard user is trapped in
+    // the editor. Escape lets go of focus; the next Tab moves past the editor.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      el.blur();
+      return;
+    }
+
+    // The drag handle only works with a pointer, so moving a block needs a
+    // keyboard route of its own.
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      event.shiftKey &&
+      (event.key === "ArrowUp" || event.key === "ArrowDown")
+    ) {
+      event.preventDefault();
+      const index = findIndex(doc, blockId);
+      const target = event.key === "ArrowUp" ? index - 1 : index + 1;
+      if (index === -1 || target < 0 || target >= doc.blocks.length) return;
+      pendingCaret.current = { blockId, offset: getCaretOffset(el) };
+      applyChange(moveBlock(commit(doc, blockId), index, target));
+      return;
     }
 
     // Only a slash that starts a word opens the menu, so "and/or" and URLs
@@ -734,45 +775,60 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
     setActiveIndex(0);
   };
 
+  // Roving tab stop: only one block is in the Tab order at a time, so Tab can
+  // leave the editor instead of walking through every line.
+  const tabbableId = doc.blocks.some((b) => b.id === focusedBlockId)
+    ? focusedBlockId
+    : (doc.blocks.find((b) => !VOID_BLOCKS.has(b.type))?.id ?? null);
+
   const dropLine = <div className="h-0.5 rounded-full bg-blue-500" aria-hidden="true" />;
   // one counter per depth: going deeper restarts at 1, coming back out resumes
   const counters: number[] = [];
 
   return (
-    <div className="mx-auto min-h-full w-full max-w-[720px] px-14 py-16">
+    <div className="mx-auto min-h-full w-full max-w-[720px] px-5 pb-16 pt-14 md:px-14 md:py-16">
       <div
-        className="pointer-events-none fixed right-5 top-4 text-xs text-neutral-400"
+        className="pointer-events-none fixed right-5 top-4 text-xs text-neutral-500"
         aria-live="polite"
       >
         {saved ? "Saved" : "Saving…"}
       </div>
-      <h1
-        ref={titleRef}
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-label="Document title"
-        className="title-field mb-6 text-[40px] font-bold tracking-tight text-neutral-900 outline-none"
-        data-empty={doc.title.length === 0}
-        data-placeholder="Untitled"
-        onInput={(event) => {
-          const el = event.currentTarget;
-          el.dataset.empty = String((el.textContent?.length ?? 0) === 0);
-          applyChange({ ...docRef.current, title: el.textContent ?? "" });
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
+      <p id={KEYBOARD_HINT_ID} className="sr-only">
+        Tab indents a line. Press Escape to leave the editor, then Tab to move on.
+        Control Shift Arrow Up or Down moves a line.
+      </p>
+      {/* A real heading, so the page has an h1 that screen readers announce as
+          one. The editable field sits inside it: role="textbox" on the h1
+          itself would replace its heading role. */}
+      <h1 className="mb-6 text-[30px] font-bold leading-tight tracking-tight text-neutral-900 md:text-[40px]">
+        <div
+          ref={titleRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-label="Document title"
+          className="title-field outline-none"
+          data-empty={doc.title.length === 0}
+          data-placeholder="Untitled"
+          onInput={(event) => {
+            const el = event.currentTarget;
+            el.dataset.empty = String((el.textContent?.length ?? 0) === 0);
+            applyChange({ ...docRef.current, title: el.textContent ?? "" });
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              focusBlock(doc.blocks[0].id, 0);
+            }
+          }}
+          onPaste={(event) => {
+            // a title is one line of plain text, whatever was copied
             event.preventDefault();
-            focusBlock(doc.blocks[0].id, 0);
-          }
-        }}
-        onPaste={(event) => {
-          // a title is one line of plain text, whatever was copied
-          event.preventDefault();
-          const firstLine = event.clipboardData.getData("text/plain").split(/\r?\n/)[0] ?? "";
-          if (firstLine) document.execCommand("insertText", false, firstLine);
-        }}
-      />
+            const firstLine = event.clipboardData.getData("text/plain").split(/\r?\n/)[0] ?? "";
+            if (firstLine) document.execCommand("insertText", false, firstLine);
+          }}
+        />
+      </h1>
 
       <div
         onClick={(event) => {
@@ -806,6 +862,8 @@ export function Editor({ pageId, onTitleChange }: EditorProps) {
                 }
                 isOnlyBlock={doc.blocks.length === 1}
                 isDragging={drag?.blockId === block.id}
+                isTabbable={block.id === tabbableId}
+                onFocusBlock={setFocusedBlockId}
                 registerRef={registerRef}
                 registerWrapper={registerWrapper}
                 onKeyDown={handleKeyDown}

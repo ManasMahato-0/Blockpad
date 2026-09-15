@@ -20,6 +20,8 @@ const WRAPPER_SPACING: Record<string, string> = {
   heading3: "mt-4",
 };
 
+export const KEYBOARD_HINT_ID = "editor-keyboard-hint";
+
 const PLACEHOLDERS: Record<string, string> = {
   heading1: "Heading 1",
   heading2: "Heading 2",
@@ -35,6 +37,8 @@ interface Props {
   listMarker?: string;
   isOnlyBlock: boolean;
   isDragging: boolean;
+  isTabbable: boolean;
+  onFocusBlock: (blockId: string) => void;
   registerRef: (id: string, el: HTMLDivElement | null) => void;
   registerWrapper: (id: string, el: HTMLDivElement | null) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>, blockId: string) => void;
@@ -49,6 +53,8 @@ export function BlockView({
   listMarker,
   isOnlyBlock,
   isDragging,
+  isTabbable,
+  onFocusBlock,
   registerRef,
   registerWrapper,
   onKeyDown,
@@ -82,6 +88,9 @@ export function BlockView({
       spellCheck
       role="textbox"
       aria-label={`${block.type} block`}
+      aria-describedby={KEYBOARD_HINT_ID}
+      tabIndex={isTabbable ? 0 : -1}
+      onFocus={() => onFocusBlock(block.id)}
       data-block-id={block.id}
       data-empty={isEmpty(block.content)}
       data-only={isOnlyBlock}
@@ -140,7 +149,7 @@ export function BlockView({
           className="mt-[7px] h-4 w-4 accent-neutral-800"
           aria-label="Toggle task"
         />
-        <div className={block.checked ? "flex-1 text-neutral-400 line-through" : "flex-1"}>
+        <div className={block.checked ? "flex-1 text-neutral-500 line-through" : "flex-1"}>
           {editable}
         </div>
       </div>
@@ -162,11 +171,15 @@ export function BlockView({
         WRAPPER_SPACING[block.type] ?? ""
       } ${isDragging ? "opacity-40" : ""}`}
     >
+      {/* Pointer-only, so kept out of the Tab order: Ctrl+Shift+Arrow moves a
+          block from the keyboard. Hidden on phones, where it would sit off-screen;
+          always shown on wider touch screens, which cannot hover to reveal it. */}
       <button
         type="button"
         aria-label="Drag to reorder"
+        tabIndex={-1}
         onPointerDown={(event) => onDragHandleDown(event, block.id)}
-        className="absolute -left-7 top-1 cursor-grab select-none rounded p-1 text-neutral-300 opacity-0 transition-opacity hover:bg-neutral-100 hover:text-neutral-500 focus:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
+        className="absolute -left-7 top-1 cursor-grab touch-none select-none rounded p-1 text-neutral-300 opacity-0 transition-opacity hover:bg-neutral-100 hover:text-neutral-500 group-hover:opacity-100 active:cursor-grabbing max-md:hidden [@media(hover:none)]:opacity-100"
       >
         <svg width="12" height="16" viewBox="0 0 12 16" aria-hidden="true" fill="currentColor">
           <circle cx="4" cy="4" r="1.4" />

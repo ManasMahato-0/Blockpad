@@ -72,7 +72,7 @@ export function Sidebar({ pages, activePageId, onSelect, onCreate, onDelete, onC
                   <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
                   <path d="M14 3v5h5" />
                 </svg>
-                <span className={`truncate ${page.title.trim() ? "" : "text-neutral-400"}`}>{label}</span>
+                <span className={`truncate ${page.title.trim() ? "" : "italic text-neutral-600"}`}>{label}</span>
               </button>
 
               <button
@@ -90,8 +90,8 @@ export function Sidebar({ pages, activePageId, onSelect, onCreate, onDelete, onC
                 title={confirming ? "Click again to delete" : "Delete page"}
                 className={`mr-1 shrink-0 rounded px-1.5 py-1 text-xs focus:opacity-100 ${
                   confirming
-                    ? "bg-red-50 font-medium text-red-600 opacity-100"
-                    : "text-neutral-400 opacity-0 hover:bg-neutral-300/60 hover:text-neutral-700 group-hover:opacity-100"
+                    ? "bg-red-50 font-medium text-red-700 opacity-100"
+                    : "text-neutral-500 opacity-0 hover:bg-neutral-300/60 hover:text-neutral-700 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 }`}
               >
                 {confirming ? (

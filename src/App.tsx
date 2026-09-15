@@ -56,24 +56,32 @@ export default function App() {
   return (
     <div className="flex min-h-full">
       {sidebarOpen ? (
-        // floats over the page on phones, sits beside it on wider screens
-        <div className="fixed inset-y-0 left-0 z-40 shadow-xl md:sticky md:top-0 md:h-screen md:shadow-none">
-          <Sidebar
-            pages={workspace.pages}
-            activePageId={workspace.activePageId}
-            onSelect={openPage}
-            onCreate={createPage}
-            onDelete={deletePage}
-            onCollapse={() => setSidebarOpen(false)}
+        <>
+          {/* phones only: a dimmed backdrop behind the floating sidebar; tapping it closes */}
+          <div
+            aria-hidden="true"
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-30 bg-black/30 md:hidden"
           />
-        </div>
+          {/* floats over the page on phones, sits beside it on wider screens */}
+          <div className="fixed inset-y-0 left-0 z-40 shadow-xl md:sticky md:top-0 md:h-screen md:shadow-none">
+            <Sidebar
+              pages={workspace.pages}
+              activePageId={workspace.activePageId}
+              onSelect={openPage}
+              onCreate={createPage}
+              onDelete={deletePage}
+              onCollapse={() => setSidebarOpen(false)}
+            />
+          </div>
+        </>
       ) : (
         <button
           type="button"
           onClick={() => setSidebarOpen(true)}
           aria-label="Open sidebar"
           title="Open sidebar"
-          className="fixed left-3 top-3 z-40 rounded-md p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800"
+          className="fixed left-3 top-3 z-40 flex h-11 w-11 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M4 6h16M4 12h16M4 18h16" />

@@ -52,9 +52,24 @@ export function insertBlockAfter(doc: Doc, afterId: string, block: Block): Doc {
   return { ...doc, blocks };
 }
 
+/**
+ * Keeps every block at most one level deeper than the block above it, with
+ * the first block at the top level. Moving or deleting a block can otherwise
+ * strand a nested item under a line it was never nested in.
+ */
+export function normalizeIndents(blocks: Block[]): Block[] {
+  let previous = -1;
+  return blocks.map((block) => {
+    const indent = block.indent ?? 0;
+    const allowed = Math.min(indent, previous + 1);
+    previous = allowed;
+    return allowed === indent ? block : { ...block, indent: allowed };
+  });
+}
+
 export function deleteBlock(doc: Doc, blockId: string): Doc {
   const blocks = doc.blocks.filter((b) => b.id !== blockId);
-  return { ...doc, blocks: blocks.length > 0 ? blocks : [createBlock()] };
+  return { ...doc, blocks: blocks.length > 0 ? normalizeIndents(blocks) : [createBlock()] };
 }
 
 export function moveBlock(doc: Doc, fromIndex: number, toIndex: number): Doc {
@@ -63,7 +78,7 @@ export function moveBlock(doc: Doc, fromIndex: number, toIndex: number): Doc {
   const [moved] = blocks.splice(fromIndex, 1);
   if (!moved) return doc;
   blocks.splice(toIndex, 0, moved);
-  return { ...doc, blocks };
+  return { ...doc, blocks: normalizeIndents(blocks) };
 }
 
 export const MAX_INDENT = 6;

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { concat, equals, normalize, slice, toPlain } from "./richText";
 import {
   createBlock,
+  deleteBlock,
   indentBlock,
   insertLines,
+  moveBlock,
   outdentBlock,
   pressBackspaceAtStart,
   pressDeleteAtEnd,
@@ -16,6 +18,34 @@ import type { Doc } from "./types";
 function docOf(...blocks: ReturnType<typeof createBlock>[]): Doc {
   return { title: "", blocks };
 }
+
+describe("reordering keeps nesting valid", () => {
+  const nested = (text: string, indent: number) => ({
+    ...createBlock("bulleted", [{ text }]),
+    indent,
+  });
+
+  it("brings a nested item up a level when it is moved to the top", () => {
+    const doc = moveBlock(docOf(nested("a", 0), nested("b", 1)), 1, 0);
+    expect(doc.blocks.map((b) => b.indent ?? 0)).toEqual([0, 0]);
+  });
+
+  it("fixes children stranded when their parent is moved away", () => {
+    const doc = moveBlock(docOf(nested("a", 0), nested("b", 1), nested("c", 2)), 0, 1);
+    expect(doc.blocks.map((b) => b.indent ?? 0)).toEqual([0, 0, 1]);
+  });
+
+  it("fixes a child stranded when its parent is deleted", () => {
+    const parent = nested("a", 0);
+    const doc = deleteBlock(docOf(parent, nested("b", 1)), parent.id);
+    expect(doc.blocks[0].indent ?? 0).toBe(0);
+  });
+
+  it("leaves valid nesting untouched", () => {
+    const doc = moveBlock(docOf(nested("a", 0), nested("b", 1), nested("c", 0)), 2, 0);
+    expect(doc.blocks.map((b) => b.indent ?? 0)).toEqual([0, 0, 1]);
+  });
+});
 
 describe("insertLines", () => {
   it("puts a single pasted line inline at the caret", () => {

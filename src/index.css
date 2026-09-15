@@ -30,7 +30,7 @@ body {
 [contenteditable][data-empty="true"][data-only="true"]::before,
 .title-field[data-empty="true"]::before {
   content: attr(data-placeholder);
-  color: #b8b6b2;
+  color: #767572; /* 4.6:1 on white */
   pointer-events: none;
   position: absolute;
   user-select: none;
@@ -40,7 +40,7 @@ body {
 [contenteditable] code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.875em;
-  color: #eb5757;
+  color: #b93a32; /* 4.8:1 on the code background; the brighter red was 2.95:1 */
   background: rgba(135, 131, 120, 0.15);
   border-radius: 4px;
   padding: 0.15em 0.35em;

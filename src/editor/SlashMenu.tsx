@@ -15,6 +15,10 @@ interface Props {
   onChoose: (command: BlockCommand) => void;
 }
 
+/** Referenced by the text line's aria-controls while the menu is open. */
+export const SLASH_MENU_ID = "slash-menu";
+export const slashOptionId = (commandId: string) => `slash-option-${commandId}`;
+
 const GAP = 6;
 const MARGIN = 8;
 
@@ -48,14 +52,21 @@ export function SlashMenu({ commands, activeIndex, anchor, onChoose }: Props) {
   return (
     <ul
       ref={listRef}
+      id={SLASH_MENU_ID}
       role="listbox"
       aria-label="Insert block"
+      // In the Tab order so a scrolling list counts as keyboard-reachable, yet it
+      // never actually takes focus from the text being typed: while the menu is
+      // open Tab and Shift+Tab choose a command, and mouse presses are cancelled.
+      tabIndex={0}
+      onMouseDown={(event) => event.preventDefault()}
       className="fixed z-50 max-h-72 w-72 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1 shadow-xl"
       style={{ top: placement.top, left: placement.left }}
     >
       {commands.map((command, index) => (
         <li
           key={command.id}
+          id={slashOptionId(command.id)}
           ref={index === activeIndex ? activeRef : undefined}
           role="option"
           aria-selected={index === activeIndex}
@@ -69,7 +80,7 @@ export function SlashMenu({ commands, activeIndex, anchor, onChoose }: Props) {
           }`}
         >
           <div className="text-sm font-medium text-neutral-900">{command.label}</div>
-          <div className="text-xs text-neutral-500">{command.description}</div>
+          <div className="text-xs text-neutral-600">{command.description}</div>
         </li>
       ))}
     </ul>
