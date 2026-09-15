@@ -11,6 +11,9 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 ## What it does
 
 - **Pages** — a sidebar of documents. Create, switch and delete them; each page keeps its own undo history.
+- **Quick search** — `Ctrl+P` searches every page's title and text, highlights the matches, and opens the result with the cursor on the matching word.
+- **Page links and backlinks** — type `[[` to link another page, or create one on the spot. Links follow renames, turn back into text when their page is deleted, and every page lists the places that link to it.
+- **Markdown in and out** — export a page as a `.md` file, or import files by picking or dragging them in. Nested lists, to-dos, formatting and `[[links]]` survive the round trip.
 - **Slash menu** — type `/` to insert or convert a block: text, three heading levels, bulleted, numbered and to-do lists, quote, divider.
 - **Formatting toolbar** — select text for bold, italic, inline code and links. Unsafe addresses such as `javascript:` links are refused.
 - **Markdown shortcuts** — `# ` becomes a heading, `- ` a bullet, `1. ` a numbered item, `> ` a quote, `[] ` a to-do. Leading spaces become indentation.
@@ -28,6 +31,8 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
   <img src="docs/toolbar.png" alt="The formatting toolbar above selected text" width="49%">
 </p>
 
+![Quick search listing matches from every page, with the searched word highlighted](docs/search.png)
+
 ![The same page in dark mode](docs/editor-dark.png)
 
 ### Keyboard
@@ -35,6 +40,9 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 | Keys | Action |
 | --- | --- |
 | `/` | Open the block menu |
+| `[[` | Link another page |
+| `Ctrl/Cmd + Enter` beside a link | Open the linked page |
+| `Ctrl/Cmd + P` | Search all pages |
 | `Enter` | Split the block at the cursor; on an empty list item, leave the list |
 | `Backspace` at line start | Turn a styled block back into text, or merge into the line above |
 | `Delete` at line end | Pull the next line up |
@@ -57,6 +65,10 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 
 **Cursor translation.** Browsers report the cursor as a DOM node plus an offset inside it. The model wants a single character offset within a block. `src/editor/caret.ts` converts between the two in both directions, which is what lets a merge land the cursor exactly at the seam.
 
+**Links are islands.** A page link is a formatted run of text that carries a page id instead of a URL, rendered as a non-editable element — so the browser deletes it whole and never lets typing land inside it. Its text is the page's title, refreshed from the page list whenever a page opens.
+
+**Markdown both ways, as pure functions.** Export and import live in the model, with no DOM. A round-trip test exports a page containing every block type and mark, imports the result, and expects the same page back.
+
 **Storage.** Each page is saved under its own key alongside a small index of page titles, so typing in one page never rewrites the others. Notes written before pages existed are migrated into the first page on load.
 
 ### Problems worth knowing about
@@ -69,6 +81,8 @@ Most bugs in this project were timing and lifecycle problems between React and t
 - **Closing a tab never unmounts React.** The close-tab save wrote the document model, but text typed in the last half second still existed only in the page — so a quick close or reload lost it. Leaving now commits every block straight from the DOM before saving.
 - **A merge reads its neighbour too.** Delete at the end of a line committed the current line but read the next one from a model that hadn't seen its latest typing — so it merged in an empty line and then removed it, silently deleting text.
 - **Pasted HTML lies.** Google Docs wraps everything you copy in `<b style="font-weight:normal">`. A parser that trusts tags turns every paste bold.
+- **Focus is not the cursor.** Closing the search dialog handed focus back to the line you were on, but `focus()` on editable text puts the cursor at its start — so the next thing you typed landed in the wrong place. The dialog now saves and restores the exact selection.
+- **A cursor can sit where typing is impossible.** Right after a page link, the browser happily places the cursor inside the link's non-editable text. Cursor placement now snaps to just before or after a link.
 
 ## Running it
 
@@ -81,7 +95,7 @@ npm test         # unit tests
 npm run build    # production build
 ```
 
-Unit tests cover the document model: text slicing and formatting marks, the Enter, Backspace and Delete rules, pasting several lines, indentation limits, the markdown shortcut matcher and the page list.
+Unit tests cover the document model: text slicing and formatting marks, the Enter, Backspace and Delete rules, pasting several lines, indentation limits, the markdown shortcut matcher, the page list, search ranking, page links and backlinks, and Markdown import and export.
 
 ## Stack
 
