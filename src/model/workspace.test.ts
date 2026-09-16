@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { addPage, removePage, renamePage, selectPage, type Workspace } from "./workspace";
+import { addPage, joinSharedPage, removePage, renamePage, selectPage, setPageRoom, type Workspace } from "./workspace";
+
+describe("sharing", () => {
+  it("gives a page a room and takes it away again", () => {
+    const shared = setPageRoom(workspaceOf(["a", "b"], "a"), "a", "room-1");
+    expect(shared.pages[0]).toEqual({ id: "a", title: "", roomId: "room-1" });
+    expect(shared.pages[1]).toEqual({ id: "b", title: "" });
+    expect(setPageRoom(shared, "a", undefined).pages[0]).toEqual({ id: "a", title: "" });
+  });
+
+  it("adds a joined page and opens it", () => {
+    const next = joinSharedPage(workspaceOf(["a"], "a"), { id: "j", title: "Shared page", roomId: "room-1" });
+    expect(next.pages.map((p) => p.id)).toEqual(["a", "j"]);
+    expect(next.activePageId).toBe("j");
+  });
+
+  it("reopens a room this device already has instead of adding it twice", () => {
+    const workspace = joinSharedPage(workspaceOf(["a"], "a"), { id: "j", title: "", roomId: "room-1" });
+    const again = joinSharedPage(selectPage(workspace, "a"), { id: "other", title: "", roomId: "room-1" });
+    expect(again.pages.map((p) => p.id)).toEqual(["a", "j"]);
+    expect(again.activePageId).toBe("j");
+  });
+});
 
 function workspaceOf(ids: string[], activePageId: string): Workspace {
   return { pages: ids.map((id) => ({ id, title: "" })), activePageId };

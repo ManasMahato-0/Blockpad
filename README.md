@@ -14,6 +14,7 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 - **Quick search** — `Ctrl+P` searches every page's title and text, highlights the matches, and opens the result with the cursor on the matching word.
 - **Page links and backlinks** — type `[[` to link another page, or create one on the spot. Links follow renames, turn back into text when their page is deleted, and every page lists the places that link to it.
 - **Markdown in and out** — export a page as a `.md` file, or import files by picking or dragging them in. Nested lists, to-dos, formatting and `[[links]]` survive the round trip.
+- **Live collaboration** — share a page with a link and edit it together in real time. Other people's cursors and names show where they're typing, your cursor stays put when they type before it, and undo only takes back your own edits. Built on Yjs, a CRDT, synced through Liveblocks.
 - **Slash menu** — type `/` to insert or convert a block: text, three heading levels, bulleted, numbered and to-do lists, quote, divider.
 - **Formatting toolbar** — select text for bold, italic, inline code and links. Unsafe addresses such as `javascript:` links are refused.
 - **Markdown shortcuts** — `# ` becomes a heading, `- ` a bullet, `1. ` a numbered item, `> ` a quote, `[] ` a to-do. Leading spaces become indentation.
@@ -30,6 +31,8 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
   <img src="docs/slash-menu.png" alt="The slash menu listing the block types" width="49%">
   <img src="docs/toolbar.png" alt="The formatting toolbar above selected text" width="49%">
 </p>
+
+![Two people editing a shared page: the other person's cursor and name in the text, and both avatars in the corner](docs/collab.png)
 
 ![Quick search listing matches from every page, with the searched word highlighted](docs/search.png)
 
@@ -69,6 +72,8 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 
 **Markdown both ways, as pure functions.** Export and import live in the model, with no DOM. A round-trip test exports a page containing every block type and mark, imports the result, and expects the same page back.
 
+**Collaboration without rewriting the editor.** The editor still works on plain page data. For a shared page, a bridge (`src/collab/yjsModel.ts`) compares each change with the shared Yjs document and applies only what differs — the characters between an unchanged start and end, or a formatting change in place — so two people typing in one line both keep their text, and bolding a range doesn't wipe out someone typing inside it. Remote changes come back as plain data plus exactly what moved in each line, which is how your cursor holds its place. Cursors are shared as Yjs relative positions, which point at a character rather than a number. The collaboration code is a separate chunk, downloaded only when a shared page opens.
+
 **Storage.** Each page is saved under its own key alongside a small index of page titles, so typing in one page never rewrites the others. Notes written before pages existed are migrated into the first page on load.
 
 ### Problems worth knowing about
@@ -83,6 +88,8 @@ Most bugs in this project were timing and lifecycle problems between React and t
 - **Pasted HTML lies.** Google Docs wraps everything you copy in `<b style="font-weight:normal">`. A parser that trusts tags turns every paste bold.
 - **Focus is not the cursor.** Closing the search dialog handed focus back to the line you were on, but `focus()` on editable text puts the cursor at its start — so the next thing you typed landed in the wrong place. The dialog now saves and restores the exact selection.
 - **A cursor can sit where typing is impossible.** Right after a page link, the browser happily places the cursor inside the link's non-editable text. Cursor placement now snaps to just before or after a link.
+- **Remote edits arrive in bursts.** When someone types quickly before your cursor, their keystrokes arrive in batches — sometimes several before React has drawn the first. Two bugs hid here: keeping only the last change per line, and working out the next shift from the cursor on screen, which hadn't moved yet. Either left your cursor a few characters behind. A test now types twenty characters in a burst before another person's cursor and checks it moved by exactly twenty.
+- **`localhost` is not always `127.0.0.1`.** On Windows the local sync server answered over HTTP but refused WebSocket connections, because `localhost` resolved to IPv6 first and the socket never fell back to IPv4.
 
 ## Running it
 
@@ -95,7 +102,18 @@ npm test         # unit tests
 npm run build    # production build
 ```
 
-Unit tests cover the document model: text slicing and formatting marks, the Enter, Backspace and Delete rules, pasting several lines, indentation limits, the markdown shortcut matcher, the page list, search ranking, page links and backlinks, and Markdown import and export.
+Live collaboration needs a [Liveblocks](https://liveblocks.io) public key; without one the Share button stays hidden and everything else works. To develop it locally with no account, run the Liveblocks dev server and point the app at it in `.env.development.local`:
+
+```bash
+docker run --rm -p 1153:1153 ghcr.io/liveblocks/dev-server
+```
+
+```ini
+VITE_LIVEBLOCKS_PUBLIC_KEY=pk_localdev
+VITE_LIVEBLOCKS_BASE_URL=http://127.0.0.1:1153
+```
+
+Unit tests cover the document model: text slicing and formatting marks, the Enter, Backspace and Delete rules, pasting several lines, indentation limits, the markdown shortcut matcher, the page list, search ranking, page links and backlinks, Markdown import and export, and the collaboration bridge — including two replicas editing the same line at once and merging to the same result.
 
 ## Stack
 
@@ -103,7 +121,7 @@ React 19, TypeScript, Vite, Tailwind CSS v4 and Vitest, deployed on Vercel.
 
 ## Scope
 
-Deliberately left out: selecting across several blocks, image upload, real-time collaboration and syncing between devices. Pages live in the browser's local storage, on the device they were written on.
+Deliberately left out: selecting across several blocks, image upload, accounts and permissions. Private pages live in the browser's local storage, on the device they were written on. A shared page lives in its Liveblocks room, and **anyone with its link can view and edit it** — the link is the only key, so share it the way you'd share a document with link editing turned on.
 
 ## Licence
 

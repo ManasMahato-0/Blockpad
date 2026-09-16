@@ -233,3 +233,35 @@ export function setSelectionOffsets(element: HTMLElement, start: number, end: nu
   selection.removeAllRanges();
   selection.addRange(range);
 }
+
+/**
+ * The on-screen rectangle a caret at `offset` would occupy, without moving
+ * the real selection. Used to draw other people's cursors.
+ */
+export function caretRectAt(element: HTMLElement, offset: number): DOMRect | null {
+  const range = document.createRange();
+  const nodes = textNodesOf(element);
+  let remaining = offset;
+  let placed = false;
+  for (const node of nodes) {
+    if (remaining <= node.length) {
+      range.setStart(...outsideLinks(element, node, remaining));
+      placed = true;
+      break;
+    }
+    remaining -= node.length;
+  }
+  if (!placed) {
+    const last = nodes[nodes.length - 1];
+    if (last) range.setStart(...outsideLinks(element, last, last.length));
+    else range.setStart(element, 0);
+  }
+  range.collapse(true);
+
+  const rect = range.getClientRects()[0];
+  if (rect && rect.height > 0) return rect;
+  // an empty line has no text to measure: use the start of its first line
+  const box = element.getBoundingClientRect();
+  if (box.height === 0) return null;
+  return new DOMRect(box.left, box.top, 0, Math.min(lineHeightOf(element, box.height), box.height));
+}

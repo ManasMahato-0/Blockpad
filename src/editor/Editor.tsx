@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { transformOffsetThrough } from "../model/textDelta";
 import type { Caret } from "../model/document";
 import {
   createBlock,
@@ -50,9 +51,11 @@ import {
   textLengthOf,
 } from "./caret";
 import { filterCommands, matchMarkdownShortcut, type BlockCommand } from "./commands";
-import { useDocumentState } from "./useDocumentState";
+import { useDocumentState, type DocumentState } from "./useDocumentState";
 import { FLUSH_EVENT } from "./storage";
 import { downloadText, markdownFileName } from "./files";
+import { ShareMenu } from "./ShareMenu";
+import { collabEnabled, shareUrl } from "../collab/config";
 import { docToMarkdown } from "../model/markdown";
 
 interface SlashState {
@@ -144,7 +147,7 @@ export interface RevealRequest {
   offset: number;
 }
 
-interface EditorProps {
+export interface EditorProps {
   pageId: string;
   onTitleChange: (title: string) => void;
   reveal?: RevealRequest;
@@ -153,9 +156,47 @@ interface EditorProps {
   onOpenPage: (pageId: string, reveal?: RevealRequest) => void;
   /** Adds a page without opening it, and returns it. */
   onCreatePage: (title: string) => PageMeta;
+  /** A shared page's collaboration room. */
+  roomId?: string;
+  /** True the first time a page is shared: its local content fills the empty room. */
+  seed?: boolean;
+  onSeeded?: () => void;
+  onShare?: () => void;
+  onStopSharing?: () => void;
+  /** Opens the share panel on arrival, right after the page was shared. */
+  shareOpen?: boolean;
+  onShareClosed?: () => void;
 }
 
-export function Editor({
+// Collaboration code loads only when a shared page is opened, so people who
+// never share don't download it.
+const SharedEditor = lazy(() => import("../collab/SharedEditor"));
+
+/** Picks where a page's content comes from: this device, or a shared room. */
+export function Editor(props: EditorProps) {
+  if (!props.roomId) return <LocalEditor {...props} />;
+  return (
+    <Suspense fallback={<EditorNotice>Loading shared page…</EditorNotice>}>
+      <SharedEditor {...props} roomId={props.roomId} />
+    </Suspense>
+  );
+}
+
+function LocalEditor(props: EditorProps) {
+  const state = useDocumentState(props.pageId, props.pages);
+  return <EditorView {...props} state={state} />;
+}
+
+/** A calm placeholder where the page will be. */
+export function EditorNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="status" className="mx-auto w-full max-w-[720px] px-5 pt-24 text-center text-sm text-neutral-600 md:px-14 dark:text-neutral-400">
+      {children}
+    </div>
+  );
+}
+
+export function EditorView({
   pageId,
   onTitleChange,
   reveal,
@@ -163,8 +204,22 @@ export function Editor({
   pages,
   onOpenPage,
   onCreatePage,
-}: EditorProps) {
-  const { doc, applyChange, undo, redo, saved, saveNow } = useDocumentState(pageId, pages);
+  roomId,
+  onShare,
+  onStopSharing,
+  shareOpen,
+  onShareClosed,
+  state,
+  headerExtra,
+  overlay,
+}: EditorProps & {
+  state: DocumentState;
+  /** Shown beside the save status, such as who else is on a shared page. */
+  headerExtra?: React.ReactNode;
+  /** Drawn over the page, such as other people's cursors. */
+  overlay?: React.ReactNode;
+}) {
+  const { doc, applyChange, undo, redo, saved, saveNow, live, onRemoteChange } = state;
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -224,15 +279,66 @@ export function Editor({
     setCaretOffset(el, caret.offset);
   });
 
+  // Where the title's caret belongs after a remote edit to the title.
+  const pendingTitleCaret = useRef<number | null>(null);
+
   useLayoutEffect(() => {
     const el = titleRef.current;
-    if (!el || document.activeElement === el) return;
+    if (!el) return;
+    const caret = pendingTitleCaret.current;
+    // while you type in the title it isn't rewritten, unless someone else changed it
+    if (document.activeElement === el && caret === null) return;
     if (el.textContent !== doc.title) el.textContent = doc.title;
+    if (caret !== null) {
+      pendingTitleCaret.current = null;
+      setCaretOffset(el, caret);
+    }
   }, [doc.title]);
 
   useEffect(() => {
     onTitleChange(doc.title);
   }, [doc.title, onTitleChange]);
+
+  /**
+   * A remote edit is about to re-render: wherever you are, your caret or
+   * selection moves by exactly what the other person inserted or deleted
+   * before it, instead of jumping when the line's HTML is rewritten.
+   */
+  useEffect(() => {
+    if (!onRemoteChange) return;
+    return onRemoteChange(({ textDeltas }) => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return;
+
+      // A second batch can arrive before the first has rendered, while the
+      // caret on screen hasn't moved yet. Carry on from where the caret is
+      // about to be, or the first batch's shift is lost.
+      if (active === titleRef.current) {
+        const deltas = textDeltas.get("title");
+        const from = pendingTitleCaret.current ?? getCaretOffset(active);
+        if (deltas) pendingTitleCaret.current = transformOffsetThrough(from, deltas);
+        return;
+      }
+
+      const blockId = active.getAttribute("data-block-id");
+      const deltas = blockId ? textDeltas.get(blockId) : undefined;
+      if (!blockId || !deltas) return;
+      const waitingSelection = pendingSelection.current?.blockId === blockId ? pendingSelection.current : null;
+      const waitingCaret = pendingCaret.current?.blockId === blockId ? pendingCaret.current : null;
+      const { start, end } = waitingSelection ?? (waitingCaret
+        ? { start: waitingCaret.offset, end: waitingCaret.offset }
+        : getSelectionOffsets(active));
+      if (end > start) {
+        pendingSelection.current = {
+          blockId,
+          start: transformOffsetThrough(start, deltas),
+          end: transformOffsetThrough(end, deltas),
+        };
+      } else {
+        pendingCaret.current = { blockId, offset: transformOffsetThrough(start, deltas) };
+      }
+    });
+  }, [onRemoteChange]);
 
   /**
    * Pull a block's live DOM text back into the model before operating on it.
@@ -272,6 +378,9 @@ export function Editor({
    */
   const typingCommit = useRef<number | null>(null);
   const typingBlockId = useRef<string | null>(null);
+  // an input method (Chinese, Japanese…) is mid-composition; rewriting the
+  // line now would cancel it
+  const composing = useRef(false);
 
   const commitTyping = useCallback(
     (blockId: string) => {
@@ -292,6 +401,12 @@ export function Editor({
 
   const scheduleTypingCommit = useCallback(
     (blockId: string) => {
+      // On a shared page every keystroke goes out at once: text held back for
+      // a debounce would meet other people's edits and lose to them.
+      if (live) {
+        if (!composing.current) commitTyping(blockId);
+        return;
+      }
       if (typingCommit.current) window.clearTimeout(typingCommit.current);
       // Typing moved to another block before the previous one was committed.
       // Cancelling its timer used to drop that text entirely; commit it now.
@@ -304,7 +419,7 @@ export function Editor({
         commitTyping(blockId);
       }, 600);
     },
-    [commitTyping]
+    [commitTyping, live]
   );
 
   /**
@@ -931,8 +1046,19 @@ export function Editor({
   const counters: number[] = [];
 
   return (
-    <div className="mx-auto min-h-full w-full max-w-[720px] px-5 pb-16 pt-14 md:px-14 md:py-16">
+    <div
+      className="mx-auto min-h-full w-full max-w-[720px] px-5 pb-16 pt-14 md:px-14 md:py-16"
+      onCompositionStart={() => {
+        composing.current = true;
+      }}
+      onCompositionEnd={(event) => {
+        composing.current = false;
+        const blockId = event.target instanceof HTMLElement ? event.target.getAttribute("data-block-id") : null;
+        if (live && blockId) commitTyping(blockId);
+      }}
+    >
       <div className="fixed right-3 top-2.5 z-20 flex items-center gap-1">
+        {headerExtra}
         <span
           className="pointer-events-none px-2 text-xs text-neutral-500 dark:text-neutral-400"
           aria-live="polite"
@@ -952,6 +1078,15 @@ export function Editor({
           </svg>
           <span className="max-md:hidden">Export</span>
         </button>
+        {collabEnabled && onShare && onStopSharing && (
+          <ShareMenu
+            link={roomId ? shareUrl(roomId) : null}
+            onShare={onShare}
+            onStopSharing={onStopSharing}
+            defaultOpen={shareOpen}
+            onClose={onShareClosed}
+          />
+        )}
       </div>
       <p id={KEYBOARD_HINT_ID} className="sr-only">
         Tab indents a line. Press Escape to leave the editor, then Tab to move on.
@@ -1077,6 +1212,8 @@ export function Editor({
           }}
         />
       )}
+
+      {overlay}
     </div>
   );
 }

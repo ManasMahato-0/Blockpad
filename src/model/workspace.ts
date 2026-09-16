@@ -1,6 +1,8 @@
 export interface PageMeta {
   id: string;
   title: string;
+  /** Set once the page is shared: the collaboration room its content lives in. */
+  roomId?: string;
 }
 
 /** The page list shown in the sidebar. Each page's content is stored separately. */
@@ -31,6 +33,28 @@ export function renamePage(workspace: Workspace, id: string, title: string): Wor
     ...workspace,
     pages: workspace.pages.map((p) => (p.id === id ? { ...p, title } : p)),
   };
+}
+
+/** Shares a page by giving it a room, or makes it private again with undefined. */
+export function setPageRoom(workspace: Workspace, id: string, roomId: string | undefined): Workspace {
+  return {
+    ...workspace,
+    pages: workspace.pages.map((p) => {
+      if (p.id !== id) return p;
+      const { roomId: _previous, ...rest } = p;
+      return roomId ? { ...rest, roomId } : rest;
+    }),
+  };
+}
+
+/**
+ * Opening a share link: reopens the page if this device already has that
+ * room, otherwise adds `page` for it. Pure, so running it twice can't add
+ * the page twice.
+ */
+export function joinSharedPage(workspace: Workspace, page: PageMeta): Workspace {
+  const existing = workspace.pages.find((p) => p.roomId === page.roomId);
+  return existing ? selectPage(workspace, existing.id) : addPage(workspace, page);
 }
 
 /**

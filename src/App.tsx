@@ -10,12 +10,15 @@ import { markdownToDoc } from "./model/markdown";
 import type { SearchResult } from "./model/search";
 import {
   addPage,
+  joinSharedPage,
   newPageMeta,
   removePage,
   renamePage,
   selectPage,
+  setPageRoom,
   type Workspace,
 } from "./model/workspace";
+import { collabEnabled, roomIdFromHash } from "./collab/config";
 
 const NARROW_SCREEN = "(max-width: 767px)";
 
@@ -37,6 +40,7 @@ export default function App() {
   }, [workspace]);
 
   const activeTitle = workspace.pages.find((p) => p.id === workspace.activePageId)?.title.trim();
+  const activeRoomId = workspace.pages.find((p) => p.id === workspace.activePageId)?.roomId;
   useEffect(() => {
     document.title = activeTitle ? `${activeTitle} · Blockpad` : "Blockpad";
   }, [activeTitle]);
@@ -98,6 +102,54 @@ export default function App() {
     openPageAt(result.pageId, { blockId: result.blockId, offset: result.offset });
   };
 
+  // a short message at the bottom of the screen, read out by screen readers
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  // Sharing moves the page's content into a new room. Unsaved typing is
+  // flushed first, because the room is filled from what's in storage.
+  const [seedRoomId, setSeedRoomId] = useState<string | null>(null);
+  const [shareOpenRoomId, setShareOpenRoomId] = useState<string | null>(null);
+  const clearSeed = useCallback(() => setSeedRoomId(null), []);
+
+  const sharePage = (pageId: string) => {
+    requestFlush();
+    const roomId = crypto.randomUUID();
+    setWorkspace((current) => setPageRoom(current, pageId, roomId));
+    setSeedRoomId(roomId);
+    setShareOpenRoomId(roomId);
+  };
+
+  const stopSharing = (pageId: string) => {
+    requestFlush();
+    setWorkspace((current) => setPageRoom(current, pageId, undefined));
+    setNotice("Stopped sharing on this device. Your copy stays here.");
+  };
+
+  // Opening a share link adds that page, or reopens it, then tidies the
+  // address bar so a reload doesn't repeat it.
+  useEffect(() => {
+    const join = () => {
+      if (!window.location.hash.startsWith("#join=")) return;
+      const roomId = roomIdFromHash(window.location.hash);
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      if (!roomId) return;
+      if (!collabEnabled) {
+        setNotice("This link is for a shared page, but sharing isn’t set up on this site.");
+        return;
+      }
+      const page = { ...newPageMeta(), title: "Shared page", roomId };
+      setWorkspace((current) => joinSharedPage(current, page));
+    };
+    join();
+    window.addEventListener("hashchange", join);
+    return () => window.removeEventListener("hashchange", join);
+  }, []);
+
   // "[[New idea" → a page titled "New idea", saved straight away so the
   // title is there when it's opened, while the writer stays where they are.
   const createLinkedPage = (title: string) => {
@@ -110,14 +162,6 @@ export default function App() {
   // the editor reports back once it has shown the match, so coming back to
   // the page later doesn't jump to it again
   const clearReveal = useCallback(() => setReveal(null), []);
-
-  // a short message at the bottom of the screen, read out by screen readers
-  const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
 
   /**
    * Each Markdown file becomes a page; the last one opens. Titles are worked
@@ -236,14 +280,22 @@ export default function App() {
 
       <main className="min-w-0 flex-1">
         <Editor
-          key={workspace.activePageId}
+          // sharing a page moves its content into a room: a fresh editor, not a patched one
+          key={`${workspace.activePageId}:${activeRoomId ?? "local"}`}
           pageId={workspace.activePageId}
+          roomId={activeRoomId}
           onTitleChange={handleTitleChange}
           reveal={reveal?.pageId === workspace.activePageId ? reveal : undefined}
           onRevealed={clearReveal}
           pages={workspace.pages}
           onOpenPage={openPageAt}
           onCreatePage={createLinkedPage}
+          seed={activeRoomId !== undefined && activeRoomId === seedRoomId}
+          onSeeded={clearSeed}
+          onShare={() => sharePage(workspace.activePageId)}
+          onStopSharing={() => stopSharing(workspace.activePageId)}
+          shareOpen={activeRoomId !== undefined && activeRoomId === shareOpenRoomId}
+          onShareClosed={() => setShareOpenRoomId(null)}
         />
       </main>
 

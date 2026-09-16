@@ -150,6 +150,16 @@ export function Sidebar({
                   <path d="M14 3v5h5" />
                 </svg>
                 <span className={`truncate ${page.title.trim() ? "" : "italic text-neutral-600 dark:text-neutral-300"}`}>{label}</span>
+                {page.roomId && (
+                  <>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="ml-auto shrink-0 text-neutral-500 dark:text-neutral-400">
+                      <circle cx="9" cy="8" r="3.5" />
+                      <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+                      <path d="M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6" />
+                    </svg>
+                    <span className="sr-only">(shared)</span>
+                  </>
+                )}
               </button>
 
               <button

@@ -11,11 +11,37 @@ const HISTORY_LIMIT = 200;
 
 export type ChangeKind = "structural" | "typing";
 
+import type { TextDelta } from "../model/textDelta";
+export type { TextDelta };
+
+export interface RemoteChange {
+  doc: Doc;
+  /**
+   * Keyed by block id, or "title". Several updates can arrive together, so
+   * each line gets every change in the order it happened.
+   */
+  textDeltas: Map<string, TextDelta[]>;
+}
+
+/** What the editor needs from a page, whether it lives on this device or is shared. */
+export interface DocumentState {
+  doc: Doc;
+  applyChange: (next: Doc, kind?: ChangeKind) => void;
+  undo: () => void;
+  redo: () => void;
+  saved: boolean;
+  saveNow: (latest: Doc) => void;
+  /** Shared pages commit every keystroke straight away, so remote edits never meet uncommitted text. */
+  live: boolean;
+  /** Called just before a remote change renders, so the editor can keep the caret in place. */
+  onRemoteChange?: (listener: (change: RemoteChange) => void) => () => void;
+}
+
 /**
  * One page's document, its undo history and its saving. The editor is
  * remounted for each page, so history never crosses between pages.
  */
-export function useDocumentState(pageId: string, pages: PageMeta[]) {
+export function useDocumentState(pageId: string, pages: PageMeta[]): DocumentState {
   // Links pick up renamed and deleted pages as the page opens. Not an undo
   // step: nobody typed anything.
   const [doc, setDocState] = useState<Doc>(() => syncLinkTitles(loadPage(pageId), pages));
@@ -99,5 +125,5 @@ export function useDocumentState(pageId: string, pages: PageMeta[]) {
     };
   }, [pageId]);
 
-  return { doc, applyChange, undo, redo, saved, saveNow };
+  return { doc, applyChange, undo, redo, saved, saveNow, live: false };
 }
