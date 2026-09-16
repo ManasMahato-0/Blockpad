@@ -26,6 +26,12 @@ export interface RemoteChange {
 /** What the editor needs from a page, whether it lives on this device or is shared. */
 export interface DocumentState {
   doc: Doc;
+  /**
+   * The page as it is right now. React state lags by a render, and on a
+   * shared page a remote edit can land in that gap — building an edit on the
+   * rendered value would send everyone back to it.
+   */
+  getDoc: () => Doc;
   applyChange: (next: Doc, kind?: ChangeKind) => void;
   undo: () => void;
   redo: () => void;
@@ -125,5 +131,7 @@ export function useDocumentState(pageId: string, pages: PageMeta[]): DocumentSta
     };
   }, [pageId]);
 
-  return { doc, applyChange, undo, redo, saved, saveNow, live: false };
+  const getDoc = useCallback(() => docRef.current, []);
+
+  return { doc, getDoc, applyChange, undo, redo, saved, saveNow, live: false };
 }

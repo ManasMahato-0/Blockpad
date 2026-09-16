@@ -171,6 +171,8 @@ export function useSharedDocument(pageId: string, roomId: string, seed?: Doc, on
     [pageId]
   );
 
+  const getDoc = useCallback(() => docRef.current, []);
+
   const onRemoteChange = useCallback((listener: (change: RemoteChange) => void) => {
     listeners.current.add(listener);
     return () => {
@@ -178,5 +180,5 @@ export function useSharedDocument(pageId: string, roomId: string, seed?: Doc, on
     };
   }, []);
 
-  return { doc, applyChange, undo, redo, saved, saveNow, live: true, onRemoteChange, ready, status, session };
+  return { doc, getDoc, applyChange, undo, redo, saved, saveNow, live: true, onRemoteChange, ready, status, session };
 }

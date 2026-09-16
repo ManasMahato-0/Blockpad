@@ -219,7 +219,7 @@ export function EditorView({
   /** Drawn over the page, such as other people's cursors. */
   overlay?: React.ReactNode;
 }) {
-  const { doc, applyChange, undo, redo, saved, saveNow, live, onRemoteChange } = state;
+  const { doc, getDoc, applyChange, undo, redo, saved, saveNow, live, onRemoteChange } = state;
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -232,8 +232,9 @@ export function EditorView({
   const pendingCaret = useRef<Caret | null>(null);
   const pendingSelection = useRef<{ blockId: string; start: number; end: number } | null>(null);
   const titleRef = useRef<HTMLDivElement>(null);
-  const docRef = useRef(doc);
-  docRef.current = doc;
+  // the page as it is now, not as it was last rendered: a remote edit can
+  // land between the two, and building an edit on the old value undoes it
+  const liveDoc = getDoc;
 
   const matches: MenuChoice[] = !slash
     ? []
@@ -386,8 +387,8 @@ export function EditorView({
     (blockId: string) => {
       const el = elements.current.get(blockId);
       if (!el) return;
-      const next = commit(docRef.current, blockId);
-      if (next === docRef.current) return;
+      const next = commit(liveDoc(), blockId);
+      if (next === liveDoc()) return;
       // Only reposition the caret if the user is still in this block — the
       // commit can land after they have moved on, and would otherwise drag
       // them back to where they were typing.
@@ -429,7 +430,7 @@ export function EditorView({
    * would move the cursor when the user comes back to the tab.
    */
   const flushFromDom = useCallback(() => {
-    let latest = docRef.current;
+    let latest = liveDoc();
     for (const id of elements.current.keys()) latest = commit(latest, id);
     saveNow(latest);
     return latest;
@@ -573,6 +574,7 @@ export function EditorView({
    * the re-render so marks can be stacked one after another.
    */
   const applyMark = (blockId: string, start: number, end: number, mark: MarkName) => {
+    const doc = liveDoc();
     if (end <= start) return;
     const committed = commit(doc, blockId);
     const block = getBlock(committed, blockId);
@@ -591,6 +593,7 @@ export function EditorView({
   };
 
   const applyLink = (href: string | undefined) => {
+    const doc = liveDoc();
     if (!toolbar) return;
     const { blockId, start, end } = toolbar;
     let target: string | undefined;
@@ -610,6 +613,7 @@ export function EditorView({
    * is replaced by a link to the chosen page, created first if it's new.
    */
   const chooseMenuItem = (item: MenuChoice) => {
+    const doc = liveDoc();
     if (!slash) return;
     const { trigger, blockId, startOffset, query } = slash;
     closeSlash();
@@ -710,6 +714,7 @@ export function EditorView({
   // --- dragging blocks ------------------------------------------------------
 
   const startDrag = (event: React.PointerEvent, blockId: string) => {
+    const doc = liveDoc();
     event.preventDefault();
     const fromIndex = findIndex(doc, blockId);
     if (fromIndex === -1) return;
@@ -722,7 +727,7 @@ export function EditorView({
     if (!drag) return;
 
     const indexForY = (y: number): number => {
-      const blocks = docRef.current.blocks;
+      const blocks = liveDoc().blocks;
       for (let i = 0; i < blocks.length; i++) {
         const rect = wrappers.current.get(blocks[i].id)?.getBoundingClientRect();
         if (!rect) continue;
@@ -738,7 +743,7 @@ export function EditorView({
       // dropping below itself: removing the block first shifts everything up one
       const adjusted = target > drag.fromIndex ? target - 1 : target;
       if (adjusted !== drag.fromIndex) {
-        applyChange(moveBlock(docRef.current, drag.fromIndex, adjusted));
+        applyChange(moveBlock(liveDoc(), drag.fromIndex, adjusted));
       }
       setDrag(null);
       setDropIndex(null);
@@ -760,6 +765,7 @@ export function EditorView({
    * and multi-line text lands as one block with newlines inside it.
    */
   const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>, blockId: string) => {
+    const doc = liveDoc();
     const el = elements.current.get(blockId);
     if (!el) return;
     event.preventDefault();
@@ -791,6 +797,7 @@ export function EditorView({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, blockId: string) => {
+    const doc = liveDoc();
     const el = elements.current.get(blockId);
     if (!el) return;
 
@@ -1109,7 +1116,7 @@ export function EditorView({
           onInput={(event) => {
             const el = event.currentTarget;
             el.dataset.empty = String((el.textContent?.length ?? 0) === 0);
-            applyChange({ ...docRef.current, title: el.textContent ?? "" });
+            applyChange({ ...liveDoc(), title: el.textContent ?? "" });
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -1173,7 +1180,7 @@ export function EditorView({
                 onKeyDown={handleKeyDown}
                 onInput={handleInput}
                 onPaste={handlePaste}
-                onToggleCheck={(id) => applyChange(toggleChecked(doc, id))}
+                onToggleCheck={(id) => applyChange(toggleChecked(liveDoc(), id))}
                 onDragHandleDown={startDrag}
               />
             </Fragment>
