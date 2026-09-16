@@ -117,7 +117,7 @@ Unit tests cover the document model: text slicing and formatting marks, the Ente
 
 ## Stack
 
-React 19, TypeScript, Vite, Tailwind CSS v4 and Vitest, deployed on Vercel.
+React 19, TypeScript, Vite, Tailwind CSS v4 and Vitest, deployed on Vercel. Shared pages use Yjs for the CRDT and Liveblocks to sync it; both load only when a shared page is opened.
 
 ## Scope
 
