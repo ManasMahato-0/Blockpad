@@ -14,7 +14,7 @@ Built from scratch with React and TypeScript — no editor framework. Cursor tra
 - **Quick search** — `Ctrl+P` searches every page's title and text, highlights the matches, and opens the result with the cursor on the matching word.
 - **Page links and backlinks** — type `[[` to link another page, or create one on the spot. Links follow renames, turn back into text when their page is deleted, and every page lists the places that link to it.
 - **Markdown in and out** — export a page as a `.md` file, or import files by picking or dragging them in. Nested lists, to-dos, formatting and `[[links]]` survive the round trip.
-- **Live collaboration** — share a page with a link and edit it together in real time. Other people's cursors and names show where they're typing, your cursor stays put when they type before it, and undo only takes back your own edits. Built on Yjs, a CRDT, synced through Liveblocks.
+- **Live collaboration** — share a page with a link and edit it together in real time. Other people's cursors and names show where they're typing, your cursor stays put when they type before it, and undo only takes back your own edits. Built on Yjs, a CRDT, synced through Liveblocks. No accounts: the link is the key — see [Scope](#scope).
 - **Slash menu** — type `/` to insert or convert a block: text, three heading levels, bulleted, numbered and to-do lists, quote, divider.
 - **Formatting toolbar** — select text for bold, italic, inline code and links. Unsafe addresses such as `javascript:` links are refused.
 - **Markdown shortcuts** — `# ` becomes a heading, `- ` a bullet, `1. ` a numbered item, `> ` a quote, `[] ` a to-do. Leading spaces become indentation.
@@ -89,6 +89,7 @@ Most bugs in this project were timing and lifecycle problems between React and t
 - **Focus is not the cursor.** Closing the search dialog handed focus back to the line you were on, but `focus()` on editable text puts the cursor at its start — so the next thing you typed landed in the wrong place. The dialog now saves and restores the exact selection.
 - **A cursor can sit where typing is impossible.** Right after a page link, the browser happily places the cursor inside the link's non-editable text. Cursor placement now snaps to just before or after a link.
 - **Remote edits arrive in bursts.** When someone types quickly before your cursor, their keystrokes arrive in batches — sometimes several before React has drawn the first. Two bugs hid here: keeping only the last change per line, and working out the next shift from the cursor on screen, which hadn't moved yet. Either left your cursor a few characters behind. A test now types twenty characters in a burst before another person's cursor and checks it moved by exactly twenty.
+- **React state is one render behind, and a collaborator can arrive in that gap.** The editor kept its own copy of the page, refreshed while rendering. On a shared page, someone else's edit could land after that copy was taken but before the next render — and the very next keystroke would rebuild the page from the stale copy and write it back, rewriting *their* line as it was a moment ago. With two people typing at once, 6 of 8 test runs lost characters, always a few at a time, which is exactly the kind of bug that looks like "the network dropped something". The fix is one source of truth: the page state hooks expose the live value, and every edit path reads that instead of the rendered one. A test now has two people type into the same page at four speeds and checks that every character survives.
 - **`localhost` is not always `127.0.0.1`.** On Windows the local sync server answered over HTTP but refused WebSocket connections, because `localhost` resolved to IPv6 first and the socket never fell back to IPv4.
 
 ## Running it
@@ -102,7 +103,7 @@ npm test         # unit tests
 npm run build    # production build
 ```
 
-Live collaboration needs a [Liveblocks](https://liveblocks.io) public key; without one the Share button stays hidden and everything else works. To develop it locally with no account, run the Liveblocks dev server and point the app at it in `.env.development.local`:
+Live collaboration needs a [Liveblocks](https://liveblocks.io) public key; without one the Share button stays hidden and everything else works. Their free plan requires their badge to be shown, so it sits in the bottom corner of the deployed app. To develop it locally with no account, run the Liveblocks dev server and point the app at it in `.env.development.local`:
 
 ```bash
 docker run --rm -p 1153:1153 ghcr.io/liveblocks/dev-server
@@ -121,7 +122,11 @@ React 19, TypeScript, Vite, Tailwind CSS v4 and Vitest, deployed on Vercel. Shar
 
 ## Scope
 
-Deliberately left out: selecting across several blocks, image upload, accounts and permissions. Private pages live in the browser's local storage, on the device they were written on. A shared page lives in its Liveblocks room, and **anyone with its link can view and edit it** — the link is the only key, so share it the way you'd share a document with link editing turned on.
+Deliberately left out: selecting across several blocks, image upload, and accounts.
+
+**There is no sign-in, so nothing here has an owner.** A private page lives in your browser's local storage — it is "yours" only in the sense that it sits on that device, in that browser, and clearing site data deletes it. A shared page lives in its Liveblocks room, and the random room id in the share link is the only credential: anyone holding the link can read and write, "Stop sharing" only removes the page from your own sidebar, and a link can't be revoked. It's the model Excalidraw and tldraw share links use.
+
+That's a deliberate limit, not an oversight. Permissions can't be enforced in the browser — any rule the client applies, the client can remove — so real ownership needs a server signing tokens (a Liveblocks secret key behind an auth endpoint, or access tokens), plus somewhere to record who owns what. Adding that would make this a full-stack project; the interesting problems here are in the editor.
 
 ## Licence
 

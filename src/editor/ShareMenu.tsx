@@ -92,7 +92,10 @@ export function ShareMenu({ link, onShare, onStopSharing, defaultOpen = false, o
         >
           {link ? (
             <>
-              <p className="mb-2">Anyone with this link can view and edit the page.</p>
+              <p className="mb-1">Anyone with this link can view and edit the page.</p>
+              <p className="mb-2 text-xs text-neutral-600 dark:text-neutral-300">
+                There are no accounts — the link is the only key, and it can’t be taken back once sent.
+              </p>
               <div className="flex gap-1.5">
                 <input
                   ref={inputRef}
@@ -123,12 +126,16 @@ export function ShareMenu({ link, onShare, onStopSharing, defaultOpen = false, o
               >
                 Stop sharing on this device
               </button>
+              <p className="text-xs text-neutral-600 dark:text-neutral-300">
+                Keeps your copy of the page. Anyone already holding the link keeps editing theirs.
+              </p>
             </>
           ) : (
             <>
               <p className="mb-1 font-medium text-neutral-900 dark:text-neutral-100">Edit this page together</p>
               <p className="mb-3 text-neutral-600 dark:text-neutral-300">
-                The page moves to a shared room, and anyone with the link can view and edit it live.
+                The page moves to a shared room, and anyone with the link can view and edit it live. There are
+                no accounts: the link is the only key, and sharing can’t be undone for people who already have it.
               </p>
               <button
                 type="button"
